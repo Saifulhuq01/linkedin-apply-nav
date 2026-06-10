@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────
+# Apply-Nav Configuration Template
+# ─────────────────────────────────────────────────────────────
+#
+# FIRST-TIME SETUP:
+#   1. Copy this file:  cp config.yaml config.local.yaml
+#   2. Fill in your personal details in config.local.yaml
+#   3. Run the dashboard:  python job_applier_dashboard.py
+#
+# config.local.yaml is gitignored — your secrets stay local.
+# ─────────────────────────────────────────────────────────────
+
+user:
+  first_name: ""
+  last_name: ""
+  email: ""
+  phone: ""
+  city: ""
+  work_authorization: "Authorized to work"
+  years_of_experience: ""
+
+llm:
+  # Provider: gemini | ollama
+  provider: "gemini"
+
+  gemini:
+    # Set here or via GEMINI_API_KEY environment variable
+    api_key: ""
+    model: "gemini-2.5-flash"
+
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3.1"
+
+search:
+  default_keywords: ""
+  default_location: ""
+  max_pages: 2
+  easy_apply_only: true
+
+safety:
+  # Rate limits to protect your LinkedIn account
+  max_applies_per_hour: 5
+  max_applies_per_day: 25
+  min_delay_between_applies_seconds: 60
+  pause_on_captcha: true
+
+resume:
+  # These are set automatically when you upload via the UI
+  pdf_path: ""
+  txt_path: ""

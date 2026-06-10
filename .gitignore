@@ -19,9 +19,18 @@ diag_apply_btn.png
 # GPG Batch Configs (temp files)
 gpg_params.txt
 
-# Local Environment/Secrets (just in case)
+# Local Environment/Secrets
 .env
 .env.*
+
+# User configuration with secrets (PII + API keys)
+config.local.yaml
+
+# User data (resumes, database)
+data/
+
+# Diagnostic scripts
+diag_*.py
 
 # OS and IDE files
 .vscode/
@@ -29,3 +38,7 @@ gpg_params.txt
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Legacy resume files (should be in data/resumes/)
+*Resume*.pdf
+*Resume*.txt

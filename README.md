@@ -1,118 +1,175 @@
 # Apply-Nav 🧭
-### LinkedIn Easy Apply Automation Dashboard
+### AI-Powered Job Application Dashboard
 
-Apply-Nav is a premium, locally run, semi-automated LinkedIn "Easy Apply" job application tool. Designed with security, control, and visual excellence in mind, Apply-Nav helps you search, score, and apply to jobs while keeping you completely in the driver's seat through a **Human-in-the-Loop (HITL)** architecture and smart LLM integrations.
+Apply-Nav is a locally-run, semi-automated job application tool for LinkedIn. It searches for jobs, scores them against your resume using AI, and automates the Easy Apply flow — while keeping you in full control through a **Human-in-the-Loop (HITL)** architecture.
+
+Supports LinkedIn Easy Apply, Workday, Greenhouse, Lever, and other ATS portals with semi-automated form filling.
 
 ---
 
 ## ✨ Key Features
 
-- **🎨 Modern Aesthetic Dashboard**: Features a responsive dark mode UI with glassmorphism, tailored HSL color schemes, interactive grids, and smooth animations.
-- **🧠 LLM-Powered Job Matching**: Uses the Gemini API to analyze LinkedIn job descriptions against your resume, calculate compatibility scores (0-100), highlight matching factors, and flag skill gaps.
-- **🤖 Semi-Automated Playwright/Patchright Flow**: Automatically navigates to LinkedIn job pages, launches a browser, clicks the Easy Apply flow, uploads your resume, and fills in text inputs, radio selections, and checkboxes.
-- **🛡️ Human-in-the-Loop Protection**: To protect your LinkedIn account from flags and blockages, the automation uses randomized typing delays. It **never** submits applications without your explicit review. It pauses on screening questions it can't resolve, letting you answer directly via the UI dashboard.
-- **⚡ Unified Browser Context**: Employs a shared, persistent browser profile session across search and apply tasks to eliminate race conditions and avoid session blockages.
+- **🎨 Premium Dashboard UI** — Dark mode glassmorphism interface with real-time streaming logs, match analytics, and application history tracking.
+- **🧠 AI-Powered Job Matching** — Scores jobs against your resume (0-100) using Gemini or Ollama (local). Highlights matching skills, skill gaps, and generates personalized outreach notes.
+- **🤖 Multi-ATS Automation** — Handles LinkedIn Easy Apply, Workday, Greenhouse, and unknown ATS portals. Auto-fills forms, uploads resume, pauses for HITL on complex fields.
+- **🛡️ Account Safety** — Rate limiting (configurable per hour/day), randomized delays, duplicate detection, and never submits without your review.
+- **📊 Application History** — SQLite-backed tracking of every application with stats, dedup prevention, and searchable history.
+- **📄 Resume Management** — Upload PDF via drag-and-drop, automatic text extraction for AI scoring.
+- **🔧 Zero Hardcoded PII** — All personal data lives in `config.local.yaml` (gitignored). Anyone can fork and use this tool.
 
 ---
 
 ## 📂 Project Structure
 
 ```text
-automation/
+apply-nav/
 ├── templates/
-│   └── index.html               # Premium HTML5/CSS3/JS Web UI Dashboard
-├── job_applier_dashboard.py     # FastAPI Server managing Playwright sessions & Gemini scoring
-├── run_dashboard.bat            # Quick startup script to install dependencies and run dashboard
-├── setup_git_keys.py            # Local Git configuration & SSH/GPG key generator script
-├── Mohammed_Saifulhuq_Resume.pdf# Main resume file (PDF)
-├── Mohammed_Saifulhuq_Resume.txt# Extracted plaintext resume for LLM parsing
-├── LICENSE                      # MIT Open Source License
-├── README.md                    # Project Documentation
-└── .gitignore                   # Ignores venvs, cache directories, screenshots, and logs
+│   ├── index.html                  # Main UI (~220 lines, modular)
+│   ├── css/
+│   │   ├── styles.css              # Core design system
+│   │   └── components.css          # Component-specific styles
+│   └── js/
+│       ├── websocket.js            # WebSocket connection manager
+│       ├── search.js               # Job search & display
+│       ├── apply.js                # Apply modal & HITL flow
+│       ├── resume.js               # Resume upload
+│       ├── config.js               # User profile management
+│       └── history.js              # Application history table
+├── ats_handlers/
+│   ├── base.py                     # Abstract ATS handler
+│   ├── easy_apply.py               # LinkedIn Easy Apply handler
+│   ├── workday.py                  # Workday semi-automation
+│   ├── greenhouse.py               # Greenhouse automation
+│   └── hitl_fallback.py            # Generic HITL fallback
+├── job_applier_dashboard.py        # FastAPI backend server
+├── db.py                           # SQLite state persistence
+├── resume_manager.py               # PDF upload & text extraction
+├── llm_adapter.py                  # Multi-provider LLM abstraction
+├── ats_router.py                   # ATS type detection & routing
+├── config.yaml                     # Configuration template (committed)
+├── config.local.yaml               # Your config with secrets (gitignored)
+├── run_dashboard.bat               # Windows startup script
+├── run_dashboard.sh                # Linux/macOS startup script
+├── LICENSE                         # MIT License
+└── README.md
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- **Python**: Version 3.10 or higher.
-- **uv**: It is recommended to use `uv` (a fast Python package installer and manager). You can install it via:
-  ```powershell
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-  ```
-- **Git**: Installed at `C:\Program Files\Git` (needed for repository tracking).
-- **GnuPG (GPG)**: Installed with Git (needed for signed commits).
+### Prerequisites
+- **Python 3.10+**
+- **uv** (recommended) or pip
+- A LinkedIn account with an active session
 
-### 2. Initializing Git & Key Configurations
-To secure your repository commits and prepare for open-sourcing, we have configured your Git credentials, generated SSH keys, and set up GPG commit signing:
-- **Git Username**: `saifulhuq01`
-- **Git Email**: `s.md.saifulhuq007@gmail.com`
+### 1. Clone and Configure
 
-You can run the script manually if you ever need to re-generate or view your keys again:
-```powershell
-.\linkedin-mcp-server\.venv\Scripts\python.exe setup_git_keys.py
+```bash
+git clone https://github.com/Saifulhuq01/linkedin-apply-nav.git
+cd linkedin-apply-nav
+
+# Create your local config
+cp config.yaml config.local.yaml
 ```
 
-#### 🔑 Adding Keys to your GitHub Account
-1. **SSH Key**: Copy the public key printed by the setup script (located at `C:\Users\smdsa\.ssh\id_ed25519.pub`). Go to **GitHub Settings ➔ SSH and GPG keys ➔ New SSH Key** and paste it there.
-2. **GPG Key**: Copy the block starting with `-----BEGIN PGP PUBLIC KEY BLOCK-----` (which can also be retrieved by running `gpg --armor --export s.md.saifulhuq007@gmail.com`). Go to **GitHub Settings ➔ SSH and GPG keys ➔ New GPG Key** and paste it.
+Edit `config.local.yaml` with your details, **or** use the Settings tab in the UI after launching.
 
-### 3. First-Time LinkedIn Session Login
-Before running the automated dashboard, you must establish an authenticated session in the automated browser profile so the crawler doesn't get blocked:
-```powershell
-.\linkedin-mcp-server\.venv\Scripts\python.exe -m linkedin_mcp_server --login
+### 2. Authenticate with LinkedIn
+
+```bash
+# First-time only: log in to LinkedIn in the automated browser profile
+./linkedin-mcp-server/.venv/Scripts/python.exe -m linkedin_mcp_server --login
 ```
-This opens a browser window. Log into your LinkedIn account. Once logged in, you can close the browser window. The session cookies will be stored securely in `~/.linkedin-mcp/profile`.
 
-### 4. Running the Dashboard
-Simply double-click the `run_dashboard.bat` file or execute it in your terminal:
+This opens a browser. Log in to LinkedIn, then close it. Session cookies are stored locally.
+
+### 3. Run the Dashboard
+
+**Windows:**
 ```powershell
 .\run_dashboard.bat
 ```
-This script will:
-1. Verify and install FastAPI, Uvicorn, Websockets, and Google-GenAI.
-2. Launch the backend application.
-3. Automatically open your browser to `http://localhost:8000`.
+
+**Linux/macOS:**
+```bash
+chmod +x run_dashboard.sh
+./run_dashboard.sh
+```
+
+The dashboard opens at `http://localhost:8000`.
 
 ---
 
-## 🛠️ How it Works
+## 🛠️ How It Works
 
 ```mermaid
 graph TD
-    A[Start Dashboard UI] --> B[Enter Gemini Key & Search Keywords]
-    B --> C[Fetch Jobs from LinkedIn API]
-    C --> D[Evaluate Compatibility & Score Resume with Gemini]
-    D --> E[Select Job & Click Apply]
-    E --> F[Launch Non-Headless Playwright Browser]
-    F --> G[Extract Form Fields & Match with Resume]
-    G --> H{Unresolved Question?}
-    H -- Yes --> I[Prompt User in Dashboard UI]
-    I --> J[User Provides Answer]
-    J --> K[Resume Automation Flow]
-    H -- No --> L[Complete Form Filling]
-    L --> M[Pause on Final Review Page]
-    M --> N[User Clicks Submit in Browser]
+    A[Upload Resume PDF] --> B[Configure Profile in Settings]
+    B --> C[Enter Search Keywords]
+    C --> D[Fetch Jobs from LinkedIn]
+    D --> E[AI Scores Resume vs Job Description]
+    E --> F[Select Job & Click Apply]
+    F --> G{ATS Type?}
+    G -->|Easy Apply| H[15-step Form Automation]
+    G -->|Workday| I[Semi-automated + HITL]
+    G -->|Greenhouse| J[Auto-fill Standard Form]
+    G -->|Unknown| K[AI-Guided Manual Mode]
+    H --> L[Review & Submit]
+    I --> L
+    J --> L
+    K --> L
+    L --> M[Recorded in SQLite History]
 ```
 
-### 🧠 Gemini Scoring System
-By providing a Gemini API Key in the top panel, the server leverages Gemini's capabilities to:
-1. Read the parsed plaintext file (`Mohammed_Saifulhuq_Resume.txt`).
-2. Analyze the job description for technical stack requirements, domain overlap, and experience levels.
-3. Generate a matching breakdown and calculate a matching score out of 100.
-4. Auto-generate custom outreach messages that align your profile directly to the specific job duties.
+### AI Scoring
+
+With a Gemini API key (free tier available), the system:
+1. Reads your extracted resume text
+2. Analyzes job descriptions for skill requirements
+3. Calculates a match score (0-100) with detailed rationale
+4. Highlights matched skills and gaps
+5. Generates personalized outreach messages
+
+Without an API key, a keyword heuristic provides basic matching.
 
 ---
 
-## 🔒 Security & Safe Usage
+## ⚙️ Configuration
 
-- **Rate Limiting**: To prevent LinkedIn from flagging automated actions, the backend executes actions with randomised pauses (between 1 and 3.5 seconds) simulating human interaction speed.
-- **Local Credentials**: Resume paths, session profiles, and API keys are stored and run entirely on your local machine. No data is transmitted to external servers except to the Gemini API for scoring.
-- **Safety Pauses**: The Playwright script is configured to pause at the final submission stage. This allows you to verify that all auto-filled information is correct before submitting the application.
+All configuration lives in `config.local.yaml` (gitignored):
+
+| Section | Key | Description |
+|---|---|---|
+| `user` | `first_name`, `last_name`, `email`, `phone`, `city` | Auto-fill data for applications |
+| `llm.provider` | `gemini` or `ollama` | AI provider selection |
+| `llm.gemini.api_key` | Your Gemini API key | Or set `GEMINI_API_KEY` env var |
+| `safety.max_applies_per_hour` | Default: 5 | Rate limiting |
+| `safety.max_applies_per_day` | Default: 25 | Daily cap |
+
+---
+
+## 🔒 Security & Privacy
+
+- **100% Local** — All data stays on your machine. No external servers except the chosen LLM API.
+- **No PII in Source** — All personal data is in `config.local.yaml` (gitignored).
+- **Rate Limiting** — Configurable hourly/daily caps prevent LinkedIn account flags.
+- **HITL Safety** — Never submits without explicit user confirmation.
+- **Ollama Support** — Use a local LLM for zero data leaving your machine.
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Make your changes
+4. Submit a pull request
+
+The codebase is modular — each ATS handler, JS module, and CSS file is independent.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](file:///c:/Users/smdsa/Desktop/automation/LICENSE) file for more details.
+This project is licensed under the **MIT License**. See [LICENSE](./LICENSE) for details.

@@ -3,707 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>APPLY-NAV // LinkedIn Easy Apply Automation</title>
-    <!-- Google Fonts -->
+    <title>APPLY-NAV // LinkedIn Job Application Dashboard</title>
+    <meta name="description" content="Apply-Nav: AI-powered LinkedIn job application automation with resume matching, multi-ATS support, and human-in-the-loop safety.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    
-    <style>
-        :root {
-            --bg-base: #0a0b0e;
-            --bg-surface: rgba(18, 20, 28, 0.6);
-            --bg-card: rgba(26, 29, 41, 0.45);
-            --border-glow: rgba(59, 130, 246, 0.15);
-            --border-hover: rgba(59, 130, 246, 0.3);
-            
-            --text-primary: #f3f4f6;
-            --text-secondary: #9ca3af;
-            --text-muted: #6b7280;
-            
-            --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.5);
-            --success: #10b981;
-            --success-glow: rgba(16, 185, 129, 0.2);
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            
-            --font-sans: 'Outfit', 'Plus Jakarta Sans', sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
-            
-            --transition-smooth: all 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background-color: var(--bg-base);
-            color: var(--text-primary);
-            font-family: var(--font-sans);
-            overflow-x: hidden;
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
-                radial-gradient(circle at 90% 80%, rgba(16, 185, 129, 0.05) 0%, transparent 40%);
-            background-attachment: fixed;
-            min-height: 100vh;
-        }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: rgba(10, 11, 14, 0.5);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(156, 163, 175, 0.3);
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(156, 163, 175, 0.5);
-        }
-
-        .container {
-            max-width: 1440px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-
-        /* Header Styling */
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 1.5rem;
-        }
-
-        .logo-section {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .logo-symbol {
-            width: 2.5rem;
-            height: 2.5rem;
-            background: linear-gradient(135deg, var(--primary), var(--success));
-            border-radius: 0.75rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 1.25rem;
-            color: #fff;
-            box-shadow: 0 0 15px var(--primary-glow);
-            animation: pulse 3s infinite alternate;
-        }
-
-        .logo-text h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            background: linear-gradient(to right, #ffffff, #9ca3af);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .logo-text span {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
-        }
-
-        .system-status {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: rgba(255, 255, 255, 0.03);
-            padding: 0.5rem 1rem;
-            border-radius: 2rem;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 0.85rem;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: var(--text-muted);
-        }
-
-        .status-dot.online {
-            background-color: var(--success);
-            box-shadow: 0 0 8px var(--success);
-            animation: blink 1.5s infinite alternate;
-        }
-
-        /* Glassmorphic Panel Cards */
-        .glass-card {
-            background: var(--bg-surface);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border-glow);
-            border-radius: 1rem;
-            padding: 1.5rem;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-            transition: var(--transition-smooth);
-        }
-
-        .glass-card:hover {
-            border-color: var(--border-hover);
-            box-shadow: 0 8px 32px 0 rgba(59, 130, 246, 0.05);
-        }
-
-        /* Grid Layout */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 320px 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1.2fr;
-            gap: 1.5rem;
-        }
-
-        /* Form Controls styling */
-        .form-group {
-            margin-bottom: 1rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .form-group label {
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .form-control {
-            background: rgba(10, 11, 14, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 0.5rem;
-            padding: 0.75rem 1rem;
-            color: var(--text-primary);
-            font-family: var(--font-sans);
-            font-size: 0.9rem;
-            transition: var(--transition-smooth);
-            width: 100%;
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
-        }
-
-        /* Accent Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem;
-            font-weight: 600;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: var(--transition-smooth);
-            border: none;
-            text-decoration: none;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), #1d4ed8);
-            color: #fff;
-            box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.3);
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px 0 rgba(59, 130, 246, 0.4);
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, var(--success), #047857);
-            color: #fff;
-            box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.3);
-        }
-
-        .btn-success:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px 0 rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .btn-secondary:hover:not(:disabled) {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        /* Tab panels */
-        .tab-headers {
-            display: flex;
-            gap: 0.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-        }
-
-        .tab-btn {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            padding: 0.5rem 1rem;
-            cursor: pointer;
-            font-family: var(--font-sans);
-            font-size: 0.9rem;
-            font-weight: 500;
-            border-radius: 0.375rem;
-            transition: var(--transition-smooth);
-        }
-
-        .tab-btn.active {
-            color: var(--primary);
-            background: rgba(59, 130, 246, 0.1);
-        }
-
-        .tab-panel {
-            display: none;
-        }
-
-        .tab-panel.active {
-            display: block;
-        }
-
-        /* Job cards / list styling */
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .section-header h2 {
-            font-size: 1.15rem;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-            color: var(--text-primary);
-        }
-
-        .job-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            max-height: 600px;
-            overflow-y: auto;
-            padding-right: 0.25rem;
-        }
-
-        .job-card {
-            background: var(--bg-card);
-            border: 1px solid rgba(255, 255, 255, 0.03);
-            border-radius: 0.75rem;
-            padding: 1rem;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: var(--transition-smooth);
-        }
-
-        .job-card:hover {
-            border-color: rgba(255, 255, 255, 0.1);
-            background: rgba(255, 255, 255, 0.02);
-            transform: translateX(4px);
-        }
-
-        .job-card.selected {
-            border-color: var(--primary);
-            background: rgba(59, 130, 246, 0.05);
-        }
-
-        .job-info {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-            max-width: 75%;
-        }
-
-        .job-title {
-            font-weight: 600;
-            font-size: 0.95rem;
-            color: var(--text-primary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .job-company {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-
-        .job-meta {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .score-badge {
-            width: 2.25rem;
-            height: 2.25rem;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 0.85rem;
-            border: 2px solid;
-            background: rgba(0, 0, 0, 0.2);
-        }
-
-        .score-high {
-            color: var(--success);
-            border-color: var(--success);
-            box-shadow: 0 0 8px var(--success-glow);
-        }
-
-        .score-mid {
-            color: var(--warning);
-            border-color: var(--warning);
-        }
-
-        .score-low {
-            color: var(--danger);
-            border-color: var(--danger);
-        }
-
-        /* Detail view styling */
-        .detail-pane {
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-            max-height: 600px;
-            overflow-y: auto;
-            padding-right: 0.25rem;
-        }
-
-        .detail-header {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 1rem;
-        }
-
-        .detail-title {
-            font-size: 1.4rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 0.25rem;
-        }
-
-        .detail-company {
-            font-size: 1rem;
-            color: var(--primary);
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-        }
-
-        .detail-meta {
-            display: flex;
-            gap: 1rem;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-        }
-
-        .skills-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
-
-        .skill-tag {
-            font-size: 0.75rem;
-            padding: 0.25rem 0.6rem;
-            border-radius: 0.375rem;
-            font-weight: 500;
-            border: 1px solid;
-        }
-
-        .skill-tag.match {
-            background: rgba(16, 185, 129, 0.1);
-            color: var(--success);
-            border-color: rgba(16, 185, 129, 0.2);
-        }
-
-        .skill-tag.gap {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-            border-color: rgba(239, 68, 68, 0.2);
-        }
-
-        .outreach-box {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px dashed rgba(255, 255, 255, 0.1);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            position: relative;
-        }
-
-        .outreach-text {
-            font-size: 0.85rem;
-            line-height: 1.5;
-            color: var(--text-secondary);
-            font-style: italic;
-        }
-
-        .copy-btn {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: var(--transition-smooth);
-        }
-
-        .copy-btn:hover {
-            color: #fff;
-            background: var(--primary);
-        }
-
-        /* Modal styling */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(5, 5, 8, 0.85);
-            backdrop-filter: blur(8px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-
-        .modal-overlay.active {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .modal-card {
-            background: #12141c;
-            border: 1px solid rgba(59, 130, 246, 0.25);
-            border-radius: 1.5rem;
-            width: 90%;
-            max-width: 650px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            transform: scale(0.95);
-            transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
-        }
-
-        .modal-overlay.active .modal-card {
-            transform: scale(1);
-        }
-
-        .modal-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-title {
-            font-size: 1.15rem;
-            font-weight: 600;
-        }
-
-        .modal-body {
-            padding: 1.5rem;
-            overflow-y: auto;
-            max-height: 450px;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .modal-footer {
-            padding: 1.25rem 1.5rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            background: rgba(0, 0, 0, 0.25);
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-        }
-
-        /* Terminal Logging Panel */
-        .terminal-panel {
-            background: #07080a;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            font-family: var(--font-mono);
-            font-size: 0.8rem;
-            height: 180px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .log-entry {
-            line-height: 1.4;
-        }
-
-        .log-entry.info { color: #60a5fa; }
-        .log-entry.success { color: #34d399; }
-        .log-entry.warning { color: #fbbf24; }
-        .log-entry.error { color: #f87171; }
-        .log-entry.system { color: #9ca3af; }
-
-        /* Dynamic Interactive Question Dialog inside Modal */
-        .question-box {
-            background: rgba(59, 130, 246, 0.05);
-            border: 1px solid rgba(59, 130, 246, 0.2);
-            border-radius: 0.75rem;
-            padding: 1.25rem;
-            display: none;
-            flex-direction: column;
-            gap: 1rem;
-            animation: slideIn 0.3s ease;
-        }
-
-        .question-box.active {
-            display: flex;
-        }
-
-        .question-label {
-            font-weight: 600;
-            font-size: 0.95rem;
-            color: #fff;
-        }
-
-        .question-options {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .radio-option {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            cursor: pointer;
-            padding: 0.5rem;
-            border-radius: 0.375rem;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            font-size: 0.9rem;
-        }
-
-        .radio-option:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .radio-option input {
-            cursor: pointer;
-        }
-
-        /* Animations */
-        @keyframes pulse {
-            0% { box-shadow: 0 0 10px rgba(59, 130, 246, 0.4); }
-            100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.7); }
-        }
-
-        @keyframes blink {
-            0% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        @keyframes slideIn {
-            0% { transform: translateY(10px); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-        }
-
-        /* Utility classes */
-        .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        .flex-between { display: flex; justify-content: space-between; align-items: center; }
-        .gap-1 { gap: 1rem; }
-        .badge {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-        
-        .badge-success {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--success);
-        }
-
-        .placeholder-text {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            text-align: center;
-            padding: 3rem 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-        }
-    </style>
+    <link rel="stylesheet" href="/templates/css/styles.css">
+    <link rel="stylesheet" href="/templates/css/components.css">
 </head>
 <body>
     <div class="container">
-        <!-- Dashboard Header -->
+        <!-- Header -->
         <header>
             <div class="logo-section">
                 <div class="logo-symbol">A</div>
                 <div class="logo-text">
                     <h1>APPLY-NAV</h1>
-                    <span>LinkedIn Auto-Applier</span>
+                    <span>Job Application Dashboard</span>
                 </div>
             </div>
             <div class="system-status">
@@ -712,123 +28,210 @@
             </div>
         </header>
 
-        <!-- Main Grid Layout -->
-        <div class="dashboard-grid">
-            <!-- Left Sidebar Controls -->
-            <div class="sidebar">
-                <!-- Search Deck -->
-                <div class="glass-card">
-                    <h3 style="font-size: 1rem; font-weight:600; margin-bottom:1rem; letter-spacing:0.03em;">SEARCH CONFIG</h3>
-                    <div class="form-group">
-                        <label for="search-keywords">Keywords</label>
-                        <input type="text" id="search-keywords" class="form-control" value="Java Spring Boot Kafka">
-                    </div>
-                    <div class="form-group">
-                        <label for="search-location">Location</label>
-                        <input type="text" id="search-location" class="form-control" value="Chennai">
-                    </div>
-                    <div class="form-group">
-                        <label for="search-pages">Max Pages to Search</label>
-                        <input type="number" id="search-pages" class="form-control" value="2" min="1" max="5">
-                    </div>
-                    <div class="form-group" style="margin-top: 1.5rem;">
-                        <button class="btn btn-primary" id="search-jobs-btn" style="width: 100%;">
-                            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            Search LinkedIn
-                        </button>
-                    </div>
-                </div>
-
-                <!-- API & Resume Config -->
-                <div class="glass-card">
-                    <div class="tab-headers">
-                        <button class="tab-btn active" onclick="switchTab('tab-api')">API Keys</button>
-                        <button class="tab-btn" onclick="switchTab('tab-resume')">Resume info</button>
-                    </div>
-                    
-                    <div id="tab-api" class="tab-panel active">
-                        <div class="form-group">
-                            <label for="gemini-key">Gemini API Key</label>
-                            <input type="password" id="gemini-key" class="form-control" placeholder="AI-Powered Matching & Form-Solving">
-                            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">Keys are stored locally.</span>
-                        </div>
-                    </div>
-                    
-                    <div id="tab-resume" class="tab-panel">
-                        <div class="form-group">
-                            <label for="resume-content">Resume Text</label>
-                            <textarea id="resume-content" class="form-control" style="height: 120px; font-family: var(--font-mono); font-size: 0.75rem;" readonly>Loading resume...</textarea>
-                            <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">Read-only representation of local resume.</span>
-                        </div>
-                    </div>
+        <!-- Setup Banner (shown when profile is incomplete) -->
+        <div id="setup-banner" class="glass-card" style="display: none; margin-bottom: 1.5rem; border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05);">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <span style="font-size: 1.5rem;">⚙️</span>
+                <div>
+                    <strong style="color: var(--warning);">First-time setup needed</strong>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        Go to the <strong>Settings</strong> tab to fill in your profile and upload your resume before applying.
+                    </p>
                 </div>
             </div>
+        </div>
 
-            <!-- Main Panel Content -->
-            <div class="main-content">
-                <!-- Column 1: Job matching grid -->
-                <div class="glass-card" style="display: flex; flex-direction: column;">
-                    <div class="section-header">
-                        <h2>MATCHING JOBS</h2>
-                        <span class="badge" id="job-count-badge">0 Found</span>
+        <!-- Page-level Tabs -->
+        <div class="page-tabs">
+            <button class="page-tab active" onclick="switchPage('page-search')">🔍 Search & Apply</button>
+            <button class="page-tab" onclick="switchPage('page-history')">📊 History</button>
+            <button class="page-tab" onclick="switchPage('page-settings')">⚙️ Settings</button>
+        </div>
+
+        <!-- ════════════ PAGE: Search & Apply ════════════ -->
+        <div id="page-search" class="page-content active">
+            <div class="dashboard-grid">
+                <!-- Left Sidebar -->
+                <div class="sidebar">
+                    <!-- Search Config -->
+                    <div class="glass-card">
+                        <h3 style="font-size: 1rem; font-weight:600; margin-bottom:1rem; letter-spacing:0.03em;">SEARCH CONFIG</h3>
+                        <div class="form-group">
+                            <label for="search-keywords">Keywords</label>
+                            <input type="text" id="search-keywords" class="form-control" placeholder="e.g. Java Spring Boot Kafka">
+                        </div>
+                        <div class="form-group">
+                            <label for="search-location">Location</label>
+                            <input type="text" id="search-location" class="form-control" placeholder="e.g. Chennai, Remote">
+                        </div>
+                        <div class="form-group">
+                            <label for="search-pages">Max Pages to Search</label>
+                            <input type="number" id="search-pages" class="form-control" value="2" min="1" max="5">
+                        </div>
+                        <div class="form-group" style="margin-top: 1.5rem;">
+                            <button class="btn btn-primary" id="search-jobs-btn" style="width: 100%;">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                Search LinkedIn
+                            </button>
+                        </div>
                     </div>
-                    
-                    <div class="job-list" id="jobs-container">
-                        <div class="placeholder-text">
-                            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                            <span>Enter keywords and search to find matching jobs.</span>
+
+                    <!-- API Key -->
+                    <div class="glass-card">
+                        <div class="tab-headers">
+                            <button class="tab-btn active" onclick="switchTab('tab-api', event)">API Keys</button>
+                            <button class="tab-btn" onclick="switchTab('tab-resume', event)">Resume</button>
+                        </div>
+                        <div id="tab-api" class="tab-panel active">
+                            <div class="form-group">
+                                <label for="gemini-key">Gemini API Key</label>
+                                <input type="password" id="gemini-key" class="form-control" placeholder="AI-Powered Matching & Form-Solving">
+                                <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">Keys are stored locally in your browser.</span>
+                            </div>
+                        </div>
+                        <div id="tab-resume" class="tab-panel">
+                            <div id="upload-zone" class="upload-zone">
+                                <div class="upload-icon">📄</div>
+                                <div class="upload-text">Drop your resume PDF here or click to browse</div>
+                                <div class="upload-hint">PDF only, max 10MB</div>
+                            </div>
+                            <input type="file" id="resume-file-input" accept=".pdf" style="display: none;">
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label for="resume-content">Extracted Text Preview</label>
+                                <textarea id="resume-content" class="form-control" style="height: 100px; font-family: var(--font-mono); font-size: 0.7rem;" readonly>Upload a resume to see extracted text...</textarea>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Column 2: Selected Job Detail Panel -->
-                <div class="glass-card" style="display: flex; flex-direction: column;">
-                    <div class="section-header">
-                        <h2>JOB ANALYTICS & INSIGHTS</h2>
+                <!-- Main Panel -->
+                <div class="main-content">
+                    <!-- Job List -->
+                    <div class="glass-card" style="display: flex; flex-direction: column;">
+                        <div class="section-header">
+                            <h2>MATCHING JOBS</h2>
+                            <span class="badge" id="job-count-badge">0 Found</span>
+                        </div>
+                        <div class="job-list" id="jobs-container">
+                            <div class="placeholder-text">
+                                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                                <span>Enter keywords and search to find matching jobs.</span>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div class="detail-pane" id="detail-container">
-                        <div class="placeholder-text" style="height: 100%; display: flex; align-items: center; justify-content: center;">
-                            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
-                            <span>Select a job from the list to view match analysis.</span>
+
+                    <!-- Job Detail -->
+                    <div class="glass-card" style="display: flex; flex-direction: column;">
+                        <div class="section-header">
+                            <h2>JOB ANALYTICS & INSIGHTS</h2>
+                        </div>
+                        <div class="detail-pane" id="detail-container">
+                            <div class="placeholder-text" style="height: 100%; display: flex; align-items: center; justify-content: center;">
+                                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                                <span>Select a job from the list to view match analysis.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- ════════════ PAGE: History ════════════ -->
+        <div id="page-history" class="page-content">
+            <div id="stats-grid" class="stats-grid">
+                <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Loading...</div></div>
+            </div>
+            <div class="glass-card">
+                <div class="section-header">
+                    <h2>APPLICATION HISTORY</h2>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Company</th>
+                                <th>ATS</th>
+                                <th>Score</th>
+                                <th>Status</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body">
+                            <tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════════════ PAGE: Settings ════════════ -->
+        <div id="page-settings" class="page-content">
+            <div class="glass-card" style="max-width: 700px;">
+                <h3 style="font-size: 1.1rem; font-weight:600; margin-bottom:1.25rem;">USER PROFILE</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem;">
+                    This information is used to auto-fill application forms. Saved locally in <code>config.local.yaml</code>.
+                </p>
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label for="cfg-first-name">First Name</label>
+                        <input type="text" id="cfg-first-name" class="form-control" placeholder="e.g. John">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-last-name">Last Name</label>
+                        <input type="text" id="cfg-last-name" class="form-control" placeholder="e.g. Doe">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-email">Email</label>
+                        <input type="email" id="cfg-email" class="form-control" placeholder="e.g. john@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-phone">Phone</label>
+                        <input type="tel" id="cfg-phone" class="form-control" placeholder="e.g. 9025281608">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-city">City</label>
+                        <input type="text" id="cfg-city" class="form-control" placeholder="e.g. Chennai">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-experience">Years of Experience</label>
+                        <input type="text" id="cfg-experience" class="form-control" placeholder="e.g. 2">
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 0.75rem;">
+                    <label for="cfg-work-auth">Work Authorization</label>
+                    <input type="text" id="cfg-work-auth" class="form-control" placeholder="e.g. Authorized to work" value="Authorized to work">
+                </div>
+                <div style="margin-top: 1.5rem;">
+                    <button class="btn btn-primary" id="save-config-btn">Save Profile</button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Active Application Modal -->
+    <!-- Apply Modal -->
     <div class="modal-overlay" id="applier-modal">
         <div class="modal-card">
             <div class="modal-header">
-                <span class="modal-title">EASY APPLY WORKFLOW CONSOLE</span>
+                <span class="modal-title">APPLICATION WORKFLOW CONSOLE</span>
                 <span class="badge badge-success" id="console-status-badge">Launching...</span>
             </div>
-            
             <div class="modal-body">
-                <!-- Log Terminal -->
                 <div class="terminal-panel" id="terminal-log">
                     <div class="log-entry system">[SYSTEM] Console session initialized. Waiting for steps...</div>
                 </div>
-
-                <!-- Interactive Question Area -->
                 <div class="question-box" id="question-overlay">
-                    <div class="question-label" id="question-text">Do you have experience with AWS Cloud?</div>
-                    <div class="question-options" id="question-options-container">
-                        <!-- Populated dynamically -->
-                    </div>
+                    <div class="question-label" id="question-text"></div>
+                    <div class="question-options" id="question-options-container"></div>
                     <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
-                        <button class="btn btn-secondary btn-sm" onclick="skipQuestion()">Skip / Default</button>
-                        <button class="btn btn-primary btn-sm" onclick="submitAnswer()">Submit Answer</button>
+                        <button class="btn btn-secondary" onclick="skipQuestion()">Skip / Default</button>
+                        <button class="btn btn-primary" onclick="submitAnswer()">Submit Answer</button>
                     </div>
                 </div>
-
                 <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.4;">
-                    <strong>Note:</strong> A Chromium browser has opened on your screen. You can take control of it at any time to enter CAPTCHAs, resolve MFA prompts, or modify any values before submitting.
+                    <strong>Note:</strong> A browser window has opened. You can intervene at any time for CAPTCHAs, MFA, or manual corrections.
                 </div>
             </div>
-            
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeConsole()">Close / Cancel</button>
                 <button class="btn btn-success" id="confirm-submit-btn" disabled>Confirm & Submit Application</button>
@@ -836,438 +239,46 @@
         </div>
     </div>
 
-    <!-- Script logic -->
+    <!-- Scripts -->
+    <script src="/templates/js/websocket.js"></script>
+    <script src="/templates/js/search.js"></script>
+    <script src="/templates/js/apply.js"></script>
+    <script src="/templates/js/resume.js"></script>
+    <script src="/templates/js/config.js"></script>
+    <script src="/templates/js/history.js"></script>
     <script>
-        let ws;
-        let activeJobs = [];
-        let selectedJob = null;
-        let currentQuestionId = null;
-
-        // Connect WebSocket
-        function connectWS() {
-            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${proto}//${window.location.host}/ws`);
-            
-            ws.onopen = () => {
-                document.getElementById('connection-status').className = 'status-dot online';
-                document.getElementById('connection-text').innerText = 'Dashboard Connected';
-                addLog('Connected to backend application server.', 'success');
-            };
-            
-            ws.onclose = () => {
-                document.getElementById('connection-status').className = 'status-dot';
-                document.getElementById('connection-text').innerText = 'Offline (Reconnecting...)';
-                setTimeout(connectWS, 2000);
-            };
-            
-            ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
-                
-                if (msg.type === 'log') {
-                    addLog(msg.message, msg.level || 'info');
-                } else if (msg.type === 'status') {
-                    document.getElementById('console-status-badge').innerText = msg.status.toUpperCase();
-                    if (msg.status === 'paused_for_review') {
-                        document.getElementById('confirm-submit-btn').removeAttribute('disabled');
-                    } else {
-                        document.getElementById('confirm-submit-btn').setAttribute('disabled', 'true');
-                    }
-                } else if (msg.type === 'question') {
-                    showQuestion(msg.question);
-                } else if (msg.type === 'search_results') {
-                    displayJobs(msg.jobs);
-                } else if (msg.type === 'score_result') {
-                    updateJobScore(msg.job_id, msg.analysis);
-                }
-            };
+        // Page tab switching
+        function switchPage(pageId) {
+            document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            event.target.classList.add('active');
+            // Load data for specific pages
+            if (pageId === 'page-history') loadHistory();
         }
 
-        // Initialize and load configurations
-        window.addEventListener('load', () => {
-            connectWS();
-            loadResume();
-            
-            // Set API Key from local storage if available
-            const savedKey = localStorage.getItem('gemini_api_key');
-            if (savedKey) {
-                document.getElementById('gemini-key').value = savedKey;
-            }
-            
-            // Hook up Search button
-            document.getElementById('search-jobs-btn').addEventListener('click', startJobSearch);
-            
-            // Hook up Confirm Submit button
-            document.getElementById('confirm-submit-btn').addEventListener('click', confirmSubmitApplication);
-        });
-
-        // Tab Switching
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-            
-            event.target.classList.add('active');
+        // Sidebar tab switching
+        function switchTab(tabId, evt) {
+            const parent = evt.target.closest('.glass-card');
+            parent.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            parent.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+            evt.target.classList.add('active');
             document.getElementById(tabId).classList.add('active');
         }
 
-        // Fetch resume contents
-        async function loadResume() {
-            try {
-                const res = await fetch('/api/resume');
-                const data = await res.json();
-                document.getElementById('resume-content').value = data.text;
-            } catch (err) {
-                console.error("Error loading resume:", err);
-            }
-        }
+        // Initialize everything
+        window.addEventListener('load', () => {
+            connectWS();
+            initSearch();
+            initApply();
+            initResume();
+            initConfig();
 
-        // Local Storage sync for API key
-        document.getElementById('gemini-key').addEventListener('change', (e) => {
-            localStorage.setItem('gemini_api_key', e.target.value);
+            // Wire up WS log routing
+            onWsMessage(msg => {
+                if (msg.type === 'log') addLog(msg.message, msg.level || 'info');
+            });
         });
-
-        // Trigger Job Search on backend
-        async function startJobSearch() {
-            const keywords = document.getElementById('search-keywords').value;
-            const location = document.getElementById('search-location').value;
-            const pages = parseInt(document.getElementById('search-pages').value) || 2;
-            const apiKey = document.getElementById('gemini-key').value;
-            
-            document.getElementById('search-jobs-btn').disabled = true;
-            document.getElementById('search-jobs-btn').innerText = 'Searching...';
-            
-            document.getElementById('jobs-container').innerHTML = `
-                <div class="placeholder-text">
-                    <svg width="32" height="32" stroke="var(--primary)" viewBox="0 0 24 24" style="animation: blink 1s infinite alternate; fill:none; stroke-width: 2;"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10M12 2a15.3 15.3 0 00-4 10 15.3 15.3 0 004 10M2 12h20"></path></svg>
-                    <span>Navigating LinkedIn and extracting job postings...</span>
-                </div>
-            `;
-            
-            try {
-                const res = await fetch('/api/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keywords, location, max_pages: pages, gemini_key: apiKey })
-                });
-                
-                if (!res.ok) {
-                    const err = await res.json();
-                    alert(`Search failed: ${err.detail || 'Unknown error'}`);
-                    resetSearchBtn();
-                }
-            } catch (err) {
-                alert(`Search failed: ${err.message}`);
-                resetSearchBtn();
-            }
-        }
-
-        function resetSearchBtn() {
-            document.getElementById('search-jobs-btn').disabled = false;
-            document.getElementById('search-jobs-btn').innerHTML = `
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                Search LinkedIn
-            `;
-        }
-
-        // Display Searched Jobs
-        function displayJobs(jobs) {
-            resetSearchBtn();
-            activeJobs = jobs;
-            document.getElementById('job-count-badge').innerText = `${jobs.length} Found`;
-            
-            const container = document.getElementById('jobs-container');
-            if (jobs.length === 0) {
-                container.innerHTML = `<div class="placeholder-text">No Easy Apply jobs found matching criteria. Try different keywords.</div>`;
-                return;
-            }
-            
-            container.innerHTML = '';
-            jobs.forEach(job => {
-                const card = document.createElement('div');
-                card.className = `job-card`;
-                card.id = `job-card-${job.job_id}`;
-                card.onclick = () => selectJob(job.job_id);
-                
-                card.innerHTML = `
-                    <div class="job-info">
-                        <span class="job-title" title="${job.title}">${job.title}</span>
-                        <span class="job-company">${job.company}</span>
-                        <span class="job-meta">${job.location}</span>
-                    </div>
-                    <div class="score-badge" id="score-badge-${job.job_id}" style="color: var(--text-muted); border-color: rgba(255,255,255,0.1)">--</div>
-                `;
-                container.appendChild(card);
-            });
-            
-            // Automatically select first job
-            if (jobs.length > 0) {
-                selectJob(jobs[0].job_id);
-            }
-        }
-
-        // Update score badge on job card once calculation is done
-        function updateJobScore(jobId, analysis) {
-            const jobIndex = activeJobs.findIndex(j => j.job_id === jobId);
-            if (jobIndex !== -1) {
-                activeJobs[jobIndex].analysis = analysis;
-            }
-            
-            const badge = document.getElementById(`score-badge-${jobId}`);
-            if (badge) {
-                const score = analysis.score;
-                badge.innerText = score;
-                badge.className = 'score-badge';
-                if (score >= 75) badge.classList.add('score-high');
-                else if (score >= 50) badge.classList.add('score-mid');
-                else badge.classList.add('score-low');
-            }
-            
-            if (selectedJob && selectedJob.job_id === jobId) {
-                renderJobDetail(selectedJob);
-            }
-        }
-
-        // Select Job for Detail view
-        function selectJob(jobId) {
-            document.querySelectorAll('.job-card').forEach(card => card.classList.remove('selected'));
-            const card = document.getElementById(`job-card-${jobId}`);
-            if (card) card.classList.add('selected');
-            
-            selectedJob = activeJobs.find(j => j.job_id === jobId);
-            renderJobDetail(selectedJob);
-        }
-
-        // Render detailed job view
-        function renderJobDetail(job) {
-            const container = document.getElementById('detail-container');
-            if (!job) return;
-            
-            const analysis = job.analysis;
-            
-            let analysisHTML = '';
-            if (analysis) {
-                const matchedTags = analysis.matched_skills.map(s => `<span class="skill-tag match">${s}</span>`).join('');
-                const missingTags = analysis.missing_skills.map(s => `<span class="skill-tag gap">${s}</span>`).join('');
-                
-                analysisHTML = `
-                    <div class="glass-card" style="background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.02); margin-top: 1rem;">
-                        <h4 style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">MATCH RATIONALE</h4>
-                        <p style="font-size: 0.9rem; line-height: 1.4; color: var(--text-secondary); margin-bottom: 1rem;">${analysis.rationale}</p>
-                        
-                        <h4 style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;">SKILLS IDENTIFIED</h4>
-                        <div class="skills-grid" style="margin-bottom: 1rem;">
-                            ${matchedTags || '<span style="font-size: 0.8rem; color: var(--text-muted)">None parsed</span>'}
-                        </div>
-                        
-                        <h4 style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;">SKILL GAPS & BLOCKS</h4>
-                        <div class="skills-grid" style="margin-bottom: 1.25rem;">
-                            ${missingTags || '<span style="font-size: 0.8rem; color: var(--success)">Zero skills missing!</span>'}
-                        </div>
-
-                        <h4 style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">AI PERSONALIZED OUTREACH</h4>
-                        <div class="outreach-box">
-                            <button class="copy-btn" onclick="copyOutreach()">Copy Note</button>
-                            <div class="outreach-text" id="outreach-note-text">${analysis.outreach_note || 'N/A'}</div>
-                        </div>
-                    </div>
-                `;
-            } else {
-                analysisHTML = `
-                    <div style="text-align: center; padding: 2rem 0; color: var(--text-muted); font-size: 0.85rem;">
-                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin: 0 auto 0.5rem; animation: blink 1.5s infinite alternate;"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
-                        Calculating match score against your resume...
-                    </div>
-                `;
-            }
-            
-            container.innerHTML = `
-                <div class="detail-header">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;">
-                        <div>
-                            <div class="detail-title" title="${job.title}">${job.title}</div>
-                            <div class="detail-company">${job.company}</div>
-                        </div>
-                        <button class="btn btn-success" id="apply-job-btn" onclick="startEasyApply('${job.job_id}')" style="flex-shrink: 0;">
-                            Apply Easy-Apply
-                        </button>
-                    </div>
-                    <div class="detail-meta">
-                        <span>${job.location}</span>
-                        <span>Job ID: ${job.job_id}</span>
-                    </div>
-                </div>
-                
-                ${analysisHTML}
-                
-                <div>
-                    <h4 style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">DESCRIPTION SNIPPET</h4>
-                    <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-secondary); white-space: pre-line; max-height: 250px; overflow-y: auto; background: rgba(0,0,0,0.1); padding: 0.75rem; border-radius: 0.5rem;">
-                        ${job.description || 'N/A'}
-                    </p>
-                </div>
-            `;
-        }
-
-        // Copy outreach cover note
-        function copyOutreach() {
-            const text = document.getElementById('outreach-note-text').innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = document.querySelector('.copy-btn');
-                btn.innerText = 'Copied!';
-                btn.style.background = 'var(--success)';
-                setTimeout(() => {
-                    btn.innerText = 'Copy Note';
-                    btn.style.background = 'rgba(255, 255, 255, 0.05)';
-                }, 2000);
-            });
-        }
-
-        // Launch Application Modal & automation
-        async function startEasyApply(jobId) {
-            document.getElementById('applier-modal').classList.add('active');
-            
-            const terminal = document.getElementById('terminal-log');
-            terminal.innerHTML = '<div class="log-entry system">[SYSTEM] Starting automation script session...</div>';
-            document.getElementById('confirm-submit-btn').setAttribute('disabled', 'true');
-            document.getElementById('question-overlay').classList.remove('active');
-            
-            const apiKey = document.getElementById('gemini-key').value;
-            
-            try {
-                const res = await fetch('/api/apply', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ job_id: jobId, gemini_key: apiKey })
-                });
-                
-                if (!res.ok) {
-                    const err = await res.json();
-                    addLog(`Automation launch failed: ${err.detail || 'Unknown error'}`, 'error');
-                }
-            } catch (err) {
-                addLog(`Connection error: ${err.message}`, 'error');
-            }
-        }
-
-        // Close Application Modal
-        function closeConsole() {
-            document.getElementById('applier-modal').classList.remove('active');
-            fetch('/api/cancel-apply', { method: 'POST' });
-        }
-
-        // Confirm final submission of application
-        async function confirmSubmitApplication() {
-            document.getElementById('confirm-submit-btn').setAttribute('disabled', 'true');
-            addLog('Final submission confirmed by user. Completing application...', 'info');
-            
-            try {
-                const res = await fetch('/api/confirm-submit', { method: 'POST' });
-                if (!res.ok) {
-                    const err = await res.json();
-                    addLog(`Submit request failed: ${err.detail}`, 'error');
-                }
-            } catch (err) {
-                addLog(`Submit request error: ${err.message}`, 'error');
-            }
-        }
-
-        // Append log to terminal panel
-        function addLog(text, level = 'info') {
-            const terminal = document.getElementById('terminal-log');
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${level}`;
-            entry.innerText = `[${new Date().toLocaleTimeString()}] ${text}`;
-            terminal.appendChild(entry);
-            terminal.scrollTop = terminal.scrollHeight;
-        }
-
-        // Show screening question overlay
-        function showQuestion(q) {
-            currentQuestionId = q.id;
-            document.getElementById('question-text').innerText = q.text;
-            
-            const container = document.getElementById('question-options-container');
-            container.innerHTML = '';
-            
-            if (q.type === 'radio' && q.options) {
-                q.options.forEach(opt => {
-                    const label = document.createElement('label');
-                    label.className = 'radio-option';
-                    label.innerHTML = `
-                        <input type="radio" name="form-radio-q" value="${opt.id}">
-                        <span>${opt.text}</span>
-                    `;
-                    container.appendChild(label);
-                });
-            } else if (q.type === 'select' && q.options) {
-                const select = document.createElement('select');
-                select.className = 'form-control';
-                select.id = 'form-select-q';
-                q.options.forEach(opt => {
-                    const o = document.createElement('option');
-                    o.value = opt.text;
-                    o.innerText = opt.text;
-                    select.appendChild(o);
-                });
-                container.appendChild(select);
-            } else {
-                // Text input default
-                const input = document.createElement('input');
-                input.type = q.type === 'number' ? 'number' : 'text';
-                input.className = 'form-control';
-                input.id = 'form-text-q';
-                input.value = q.suggested || '';
-                container.appendChild(input);
-            }
-            
-            document.getElementById('question-overlay').classList.add('active');
-            addLog('Script paused. Custom screening question requires your confirmation.', 'warning');
-        }
-
-        // Submit answer to backend
-        async function submitAnswer() {
-            let answer = '';
-            const radios = document.getElementsByName('form-radio-q');
-            
-            if (radios.length > 0) {
-                let selectedId = '';
-                for (const r of radios) {
-                    if (r.checked) { selectedId = r.value; break; }
-                }
-                if (!selectedId) {
-                    alert('Please select an option.');
-                    return;
-                }
-                // Send back the radio option ID or text
-                answer = selectedId; 
-            } else if (document.getElementById('form-select-q')) {
-                answer = document.getElementById('form-select-q').value;
-            } else if (document.getElementById('form-text-q')) {
-                answer = document.getElementById('form-text-q').value;
-                if (!answer) {
-                    alert('Please type an answer.');
-                    return;
-                }
-            }
-            
-            document.getElementById('question-overlay').classList.remove('active');
-            addLog(`Submitting answer: "${answer}"`, 'info');
-            
-            await fetch('/api/submit-answer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ answer: answer })
-            });
-        }
-
-        function skipQuestion() {
-            document.getElementById('question-overlay').classList.remove('active');
-            addLog('Skipping question, attempting defaults...', 'info');
-            fetch('/api/submit-answer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ answer: "__SKIP__" })
-            });
-        }
     </script>
 </body>
 </html>

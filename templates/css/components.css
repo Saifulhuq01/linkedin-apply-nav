@@ -1,0 +1,105 @@
+/* ─────────────────────────────────────────────────────────
+   Apply-Nav — New Component Styles (v2)
+   ───────────────────────────────────────────────────────── */
+
+/* ─── ATS Type Badges ─── */
+.ats-badge {
+    font-size: 0.65rem; padding: 0.15rem 0.4rem; border-radius: 0.25rem;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.ats-badge.easy-apply { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+.ats-badge.workday { background: rgba(59, 130, 246, 0.15); color: var(--primary); }
+.ats-badge.greenhouse { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.ats-badge.external { background: rgba(156, 163, 175, 0.15); color: var(--text-secondary); }
+.ats-badge.applied-badge { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+
+/* ─── Stats Cards ─── */
+.stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem; margin-bottom: 1.5rem;
+}
+.stat-card {
+    background: var(--bg-card); border: 1px solid rgba(255, 255, 255, 0.03);
+    border-radius: 0.75rem; padding: 1rem; text-align: center;
+    transition: var(--transition-smooth);
+}
+.stat-card:hover { border-color: rgba(255, 255, 255, 0.1); }
+.stat-value { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); }
+.stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.25rem; }
+.stat-card.success .stat-value { color: var(--success); }
+.stat-card.warning .stat-value { color: var(--warning); }
+.stat-card.primary .stat-value { color: var(--primary); }
+
+/* ─── History Table ─── */
+.history-table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+}
+.history-table th {
+    text-align: left; padding: 0.75rem 0.5rem; color: var(--text-muted);
+    font-weight: 500; text-transform: uppercase; font-size: 0.75rem;
+    letter-spacing: 0.05em; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.history-table td {
+    padding: 0.75rem 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+}
+.history-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+.status-pill {
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 1rem;
+    font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+}
+.status-pill.applied { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+.status-pill.failed { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+.status-pill.pending { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+.status-pill.cancelled { background: rgba(156, 163, 175, 0.15); color: var(--text-muted); }
+.status-pill.manual_needed { background: rgba(59, 130, 246, 0.15); color: var(--primary); }
+
+/* ─── Resume Upload Zone ─── */
+.upload-zone {
+    border: 2px dashed rgba(59, 130, 246, 0.3); border-radius: 0.75rem;
+    padding: 2rem; text-align: center; cursor: pointer;
+    transition: var(--transition-smooth);
+    background: rgba(59, 130, 246, 0.03);
+}
+.upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--primary); background: rgba(59, 130, 246, 0.08);
+}
+.upload-zone .upload-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.upload-zone .upload-text { font-size: 0.9rem; color: var(--text-secondary); }
+.upload-zone .upload-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+.upload-success {
+    display: flex; align-items: center; gap: 0.5rem; color: var(--success);
+    font-size: 0.85rem; padding: 0.5rem 0;
+}
+
+/* ─── Config Setup Panel ─── */
+.config-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+}
+.config-grid .form-group { margin-bottom: 0; }
+
+/* ─── Nav Tabs (Top-level page tabs) ─── */
+.page-tabs {
+    display: flex; gap: 0.25rem; margin-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0;
+}
+.page-tab {
+    background: none; border: none; color: var(--text-muted);
+    padding: 0.75rem 1.25rem; cursor: pointer; font-family: var(--font-sans);
+    font-size: 0.9rem; font-weight: 500; border-bottom: 2px solid transparent;
+    transition: var(--transition-smooth);
+}
+.page-tab:hover { color: var(--text-secondary); }
+.page-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.page-content { display: none; }
+.page-content.active { display: block; }
+
+/* ─── Responsive ─── */
+@media (max-width: 1024px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .main-content { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .config-grid { grid-template-columns: 1fr; }
+}
