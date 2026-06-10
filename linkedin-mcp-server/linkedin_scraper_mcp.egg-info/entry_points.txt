@@ -1,0 +1,3 @@
+[console_scripts]
+linkedin-mcp-server = linkedin_mcp_server.cli_main:main
+linkedin-scraper-mcp = linkedin_mcp_server.cli_main:main

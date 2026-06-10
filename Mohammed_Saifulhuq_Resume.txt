@@ -1,0 +1,43 @@
+Mohammed Saifulhuq
++91 9025281608 | mohammed.saifulhuq@gmail.com | linkedin.com/in/saifulhuqs | github.com/Saifulhuq01
+
+Experience
+DLQ Revive (github.com/Saifulhuq01/dlq-revive) - Open Source Kafka Recovery (April 2026 - Present)
+Founder & Solo Engineer | Java 17, Spring Boot 3, Apache Kafka, Angular 13+, PostgreSQL Remote
+- Validated zero-tooling gap in Kafka DLQ schema recovery via r/apachekafka community research (4 senior engineers, 59K+ LinkedIn reach); architected production-safe consumer using assign()+seek() to prevent partition stealing from live consumers.
+- Engineered idempotency guard on UNIQUE(topic, partition, offset) with SELECT-before-produce semantics.
+- pod restarts during bulk redrives cannot double-process financial messages; JSONata-only transforms eliminate RCE risk from user input.
+- Shipped full open-source core: paginated DLQ reader, schema transformation engine, PostgreSQL audit trail, GitHub Actions CI; MIT licensed with public contributor roadmap.
+
+Apache Fineract (Open Source Core Banking) (January 2026 - Present)
+Open Source Contributor | Java 17, Spring Boot 3, PostgreSQL, Liquibase, Docker Remote
+- Patched critical SQL Injection in core lending engine; PR #5465 resolved Liquibase migration failures achieving 100% green CI across PostgreSQL, MariaDB, MySQL. Coordinated directly with PMC members on security roadmap.
+- Architecting system-wide transaction idempotency interceptor (FINERACT-2485): OncePerRequestFilter + PostgreSQL INSERT ... ON CONFLICT DO NOTHING atomic locks replacing exception-driven control flow on critical execution path.
+
+Muthu Soft Labs (April 2025 - March 2026)
+Software Developer | Java, Spring Boot, Angular 13+, RxJS, PostgreSQL Chennai, TN
+- Reduced Angular initial bundle load by 40% via OnPush change detection and lazy-loaded modules; eliminated API race conditions using RxJS exhaustMap/switchMap pipelines across distributed Spring Boot services.
+- Led legacy Angular component migration cutting technical debt; resolved production-critical distributed system bugs directly with stakeholders; enforced SOLID principles through peer code reviews.
+
+Freelance Software Developer (June 2023 - March 2025)
+Independent Contractor | Kotlin, Jetpack Compose, Android, REST APIs Remote (Freelancer.com)
+- Delivered Android applications end-to-end for international clients: UI with Jetpack Compose, state management via ViewModel, REST API integration, and iterative feature delivery from requirement gathering to release.
+
+Vee Technologies (July 2024 - March 2025)
+Associate, Data Operations Chennai, TN
+- Managed revenue cycle operations while self-studying Java and distributed systems concurrently; transitioned fully into software engineering within 8 months.
+
+Projects
+Apache Fineract GSoC 2026 | System-Wide Command Idempotency Interceptor | Java, Spring Boot (2026)
+- Proposed O(1) OncePerRequestFilter replacing exception-based idempotency; coordinated with PMC Chair to nest as FINERACT-2485 sub-task under architecture epic FINERACT-2169.
+
+Technical Skills
+- Backend & Distributed Systems: Java 17, Spring Boot 3 (WebFlux, Security), Apache Kafka, Microservices, RESTful APIs, Transaction Idempotency, Async Patterns
+- Frontend: Angular 13+, TypeScript, RxJS (exhaustMap, switchMap, OnPush), JavaScript, HTML5, CSS3
+- Databases: PostgreSQL (query optimization, atomic locks, schema migration), MySQL, Liquibase, JPA/Hibernate
+- Testing & DevOps: JUnit 5, Mockito, EmbeddedKafka, Docker, Docker Compose, GitHub Actions (CI/CD), Git
+- Tools & Concepts: System Design, JSONata, Linux (Arch/NixOS), Gradle, Maven, SOLID Principles, Network Security
+
+Education
+Dhanraj Baid Jain College Chennai, TN
+Bachelor of Science in Computer Science (CGPA: 8.52 / 10.00) (June 2020 - April 2023)

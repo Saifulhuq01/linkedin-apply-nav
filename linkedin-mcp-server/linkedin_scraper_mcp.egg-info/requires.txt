@@ -1,0 +1,4 @@
+fastmcp>=3.0.0
+inquirer>=3.4.0
+patchright>=1.40.0
+python-dotenv>=1.1.1
