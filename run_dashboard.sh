@@ -20,24 +20,36 @@ fi
 # Create data directories
 mkdir -p data/resumes
 
-# Detect Python executable
-PYTHON=""
-if [ -f "./linkedin-mcp-server/.venv/bin/python" ]; then
-    PYTHON="./linkedin-mcp-server/.venv/bin/python"
-elif command -v python3 &> /dev/null; then
-    PYTHON="python3"
-elif command -v python &> /dev/null; then
-    PYTHON="python"
-else
-    echo "❌ Python not found. Install Python 3.10+ first."
-    exit 1
+# Ensure virtual environment exists in linkedin-mcp-server
+if [ ! -d "linkedin-mcp-server/.venv" ]; then
+    echo "Virtual environment not found. Creating one in linkedin-mcp-server..."
+    cd linkedin-mcp-server
+    if command -v uv &> /dev/null; then
+        uv venv
+        uv pip install -e .
+    else
+        python3 -m venv .venv
+        .venv/bin/pip install -e .
+    fi
+    cd ..
 fi
 
+PYTHON="./linkedin-mcp-server/.venv/bin/python"
 echo "Using Python: $PYTHON"
 
 # Install dependencies
 echo "Verifying dependencies..."
-$PYTHON -m pip install --quiet google-genai fastapi uvicorn websockets pyyaml pdfplumber httpx 2>/dev/null || true
+if command -v uv &> /dev/null; then
+    cd linkedin-mcp-server
+    uv pip install google-genai fastapi uvicorn websockets pyyaml pdfplumber httpx
+    cd ..
+else
+    $PYTHON -m pip install google-genai fastapi uvicorn websockets pyyaml pdfplumber httpx
+fi
+
+# Install patchright browser binaries
+echo "Verifying automated browser binaries..."
+$PYTHON -m patchright install chromium || echo "[Warning] Patchright browser installation failed."
 
 # Open browser
 echo "Opening dashboard at http://localhost:8000 ..."

@@ -78,8 +78,19 @@ Edit `config.local.yaml` with your details, **or** use the Settings tab in the U
 ### 2. Authenticate with LinkedIn
 
 ```bash
-# First-time only: log in to LinkedIn in the automated browser profile
-./linkedin-mcp-server/.venv/Scripts/python.exe -m linkedin_mcp_server --login
+# First-time only: log in to LinkedIn to create the browser profile.
+# (Make sure to run the dashboard once first to build the virtual environment)
+
+# Option A: Using uv (Recommended, fast & cross-platform)
+cd linkedin-mcp-server
+uv run -m linkedin_mcp_server --login
+cd ..
+
+# Option B: Using the created virtual environment python
+# Windows:
+.\linkedin-mcp-server\.venv\Scripts\python.exe -m linkedin_mcp_server --login
+# Linux/macOS:
+./linkedin-mcp-server/.venv/bin/python -m linkedin_mcp_server --login
 ```
 
 This opens a browser. Log in to LinkedIn, then close it. Session cookies are stored locally.
