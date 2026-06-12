@@ -104,7 +104,16 @@ class WorkdayHandler(BaseATSHandler):
         # Step 3: Extract and fill form fields
         await broadcast("Scanning Workday form fields...", "info")
 
-        fields = await self._extract_workday_fields(page)
+        try:
+            fields = await self._extract_workday_fields(page)
+        except Exception as e:
+            await broadcast(f"⚠️ Failed to scan Workday fields: {e}. Falling back to HITL mode...", "warning")
+            return ApplyResult(
+                status="manual_needed",
+                ats_type="workday",
+                message=f"Workday scan failed: {e}. Fallback to manual fill.",
+            )
+
         filled_count = 0
 
         for field in fields:
@@ -122,10 +131,17 @@ class WorkdayHandler(BaseATSHandler):
                     await asyncio.sleep(0.5)
                 continue
 
-        # Step 4: Resume upload
-        resume_uploaded = await self._upload_workday_resume(page, resume_pdf_path)
-        if resume_uploaded:
-            await broadcast("✓ Resume uploaded to Workday", "success")
+        # Step 4: Resume upload with retry
+        resume_uploaded = False
+        for attempt in range(1, 3):
+            try:
+                resume_uploaded = await self._upload_workday_resume(page, resume_pdf_path)
+                if resume_uploaded:
+                    await broadcast("✓ Resume uploaded to Workday", "success")
+                    break
+            except Exception as re:
+                await broadcast(f"Resume upload attempt {attempt} failed: {re}", "warning")
+                await asyncio.sleep(2)
 
         await broadcast(
             f"Auto-filled {filled_count} fields. "
@@ -239,23 +255,27 @@ class WorkdayHandler(BaseATSHandler):
         return None
 
     async def _fill_workday_field(self, page: Any, field_id: str, field_type: str, value: str) -> bool:
-        """Fill a Workday form field."""
-        try:
-            if field_type == "select":
-                await page.locator(f"#{field_id}").select_option(label=value)
-            else:
-                el = page.locator(f"#{field_id}")
-                if await el.count() > 0:
-                    await el.fill(value)
+        """Fill a Workday form field with retry logic."""
+        for attempt in range(1, 3):
+            try:
+                if field_type == "select":
+                    await page.locator(f"#{field_id}").select_option(label=value)
                     return True
+                else:
+                    el = page.locator(f"#{field_id}")
+                    if await el.count() > 0:
+                        await el.fill(value)
+                        return True
 
-                # Try data-automation-id
-                el = page.locator(f"[data-automation-id='{field_id}'] input")
-                if await el.count() > 0:
-                    await el.first.fill(value)
-                    return True
-        except Exception as e:
-            logger.debug("Workday field fill failed for %s: %s", field_id, e)
+                    # Try data-automation-id
+                    el = page.locator(f"[data-automation-id='{field_id}'] input")
+                    if await el.count() > 0:
+                        await el.first.fill(value)
+                        return True
+            except Exception as e:
+                if attempt == 2:
+                    logger.debug("Workday field fill failed for %s: %s", field_id, e)
+                await asyncio.sleep(1)
         return False
 
     async def _upload_workday_resume(self, page: Any, resume_path: Path) -> bool:

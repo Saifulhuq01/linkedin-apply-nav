@@ -49,3 +49,11 @@ resume:
   # These are set automatically when you upload via the UI
   pdf_path: ""
   txt_path: ""
+
+search_profiles: []
+  # Example:
+  # - name: "Kafka Engineer Bangalore"
+  #   keywords: "Kafka Engineer"
+  #   location: "Bangalore"
+  #   max_pages: 3
+

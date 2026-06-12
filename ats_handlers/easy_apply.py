@@ -93,95 +93,118 @@ class EasyApplyHandler(BaseATSHandler):
                 await broadcast("Form closed.", "info")
                 break
 
-            submit_btn = page.get_by_role("button", name="Submit application", exact=False)
-            review_btn = page.get_by_role("button", name="Review", exact=False)
-            next_btn = page.get_by_role("button", name="Next", exact=False)
+            max_retries = 2
+            step_success = False
 
-            # Extract form fields
-            fields = await self._extract_form_fields(page)
+            for attempt in range(1, max_retries + 1):
+                try:
+                    submit_btn = page.get_by_role("button", name="Submit application", exact=False)
+                    review_btn = page.get_by_role("button", name="Review", exact=False)
+                    next_btn = page.get_by_role("button", name="Next", exact=False)
 
-            # Handle resume upload
-            await self._upload_resume(page, resume_pdf_path, broadcast)
+                    # Extract form fields
+                    fields = await self._extract_form_fields(page)
 
-            if fields:
-                await broadcast(f"Step {step}: {len(fields)} fields", "info")
+                    # Handle resume upload
+                    await self._upload_resume(page, resume_pdf_path, broadcast)
 
-                for field in fields:
-                    lbl = field["labelText"].lower()
+                    if fields:
+                        await broadcast(f"Step {step} (Attempt {attempt}): {len(fields)} fields", "info")
 
-                    # Skip pre-filled fields
-                    if field["currentValue"] and field["type"] in ["text", "textarea"]:
-                        continue
+                        for field in fields:
+                            lbl = field["labelText"].lower()
 
-                    # Auto-fill known PII fields from config
-                    val = self._match_pii_field(lbl, user_data)
-                    if val:
-                        if field["elementId"]:
-                            try:
-                                await page.locator(f"#{field['elementId']}").fill(val)
-                            except Exception:
-                                pass
-                        await broadcast(f"✓ {field['labelText']} → {val}", "success")
-                        continue
+                            # Skip pre-filled fields
+                            if field["currentValue"] and field["type"] in ["text", "textarea"]:
+                                continue
 
-                    # Unknown field — use HITL with AI suggestion
-                    if question_callback:
-                        suggested = ""
-                        if llm:
-                            opts = [r["text"] for r in field.get("radios", [])]
-                            try:
-                                suggested = await llm.answer_screening_question(
-                                    field["labelText"], field["type"], opts, resume_text
-                                )
-                                if suggested:
-                                    await broadcast(f"AI suggested: '{suggested}'", "system")
-                            except Exception as e:
-                                logger.debug("AI suggestion failed: %s", e)
+                            # Auto-fill known PII fields from config
+                            val = self._match_pii_field(lbl, user_data)
+                            if val:
+                                if field["elementId"]:
+                                    await page.locator(f"#{field['elementId']}").fill(val)
+                                await broadcast(f"✓ {field['labelText']} → {val}", "success")
+                                continue
 
-                        ans = await question_callback(field, suggested)
-                        if ans == "__CANCEL__":
-                            return ApplyResult(
-                                status="cancelled",
-                                ats_type="easy_apply",
-                                message="Cancelled by user.",
-                            )
-                        if ans == "__SKIP__":
-                            continue
+                            # Unknown field — use HITL with AI suggestion
+                            if question_callback:
+                                suggested = ""
+                                if llm:
+                                    opts = [r["text"] for r in field.get("radios", [])]
+                                    try:
+                                        suggested = await llm.answer_screening_question(
+                                            field["labelText"], field["type"], opts, resume_text
+                                        )
+                                        if suggested:
+                                            await broadcast(f"AI suggested: '{suggested}'", "system")
+                                    except Exception as e:
+                                        logger.debug("AI suggestion failed: %s", e)
 
-                        # Fill the answer
-                        try:
-                            await self._fill_field(page, field, ans)
-                        except Exception as fe:
-                            await broadcast(f"Fill error: {fe}", "warning")
+                                ans = await question_callback(field, suggested)
+                                if ans == "__CANCEL__":
+                                    return ApplyResult(
+                                        status="cancelled",
+                                        ats_type="easy_apply",
+                                        message="Cancelled by user.",
+                                    )
+                                if ans == "__SKIP__":
+                                    continue
 
-                        await broadcast(f"✓ Filled: {ans}", "success")
-                        await asyncio.sleep(random.uniform(0.5, 1.2))
+                                # Fill the answer
+                                await self._fill_field(page, field, ans)
+                                await broadcast(f"✓ Filled: {ans}", "success")
+                                await asyncio.sleep(random.uniform(0.5, 1.2))
 
-            await asyncio.sleep(1.5)
+                    await asyncio.sleep(1.5)
 
-            # Navigate to next step
-            try:
-                if await submit_btn.count() > 0 and await submit_btn.first.is_visible():
-                    # Final submit — pause for HITL review
-                    await broadcast("Ready to submit! Confirm in dashboard.", "warning")
-                    return ApplyResult(
-                        status="review",
-                        ats_type="easy_apply",
-                        message="Application ready for final submission. Awaiting user confirmation.",
-                    )
-                elif await review_btn.count() > 0 and await review_btn.first.is_visible():
-                    await review_btn.first.click()
-                elif await next_btn.count() > 0 and await next_btn.first.is_visible():
-                    await next_btn.first.click()
-                else:
-                    await broadcast("No navigation button found. Check browser.", "warning")
-                    return ApplyResult(
-                        status="manual_needed",
-                        ats_type="easy_apply",
-                        message="Form navigation unclear. Please check the browser.",
-                    )
-            except Exception as ne:
-                await broadcast(f"Navigation error: {ne}", "warning")
+                    # Navigate to next step
+                    if await submit_btn.count() > 0 and await submit_btn.first.is_visible():
+                        # Final submit — pause for HITL review
+                        await broadcast("Ready to submit! Confirm in dashboard.", "warning")
+                        return ApplyResult(
+                            status="review",
+                            ats_type="easy_apply",
+                            message="Application ready for final submission. Awaiting user confirmation.",
+                        )
+                    elif await review_btn.count() > 0 and await review_btn.first.is_visible():
+                        await review_btn.first.click()
+                    elif await next_btn.count() > 0 and await next_btn.first.is_visible():
+                        await next_btn.first.click()
+                    else:
+                        await broadcast("No navigation button found. Check browser.", "warning")
+                        return ApplyResult(
+                            status="manual_needed",
+                            ats_type="easy_apply",
+                            message="Form navigation unclear. Please check the browser.",
+                        )
+
+                    step_success = True
+                    break  # Success, exit retry loop and go to next step
+
+                except Exception as ex:
+                    await broadcast(f"Step {step} error (Attempt {attempt}/{max_retries}): {ex}", "warning")
+                    if attempt < max_retries:
+                        await asyncio.sleep(random.uniform(3.0, 5.0))
+                        # Refresh/re-locate modal if lost
+                        if await modal.count() == 0:
+                            await broadcast("Modal lost during error recovery.", "warning")
+                            break
+                    else:
+                        # Unrecoverable error on this step
+                        await broadcast(f"Step {step} failed after {max_retries} attempts. Saving state.", "error")
+                        return ApplyResult(
+                            status="interrupted",
+                            ats_type="easy_apply",
+                            message=f"Interrupted at step {step}: {ex}",
+                            error=str(ex)
+                        )
+
+            if not step_success:
+                return ApplyResult(
+                    status="failed",
+                    ats_type="easy_apply",
+                    message=f"Failed to complete step {step}.",
+                )
 
             await asyncio.sleep(random.uniform(1.5, 3.0))
 

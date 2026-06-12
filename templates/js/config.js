@@ -5,6 +5,8 @@
 function initConfig() {
     loadConfig();
     document.getElementById('save-config-btn')?.addEventListener('click', saveConfig);
+    document.getElementById('refresh-cache-btn')?.addEventListener('click', loadCacheStats);
+    document.getElementById('clear-cache-btn')?.addEventListener('click', clearCache);
 
     // API key local storage sync
     const geminiKeyEl = document.getElementById('gemini-key');
@@ -15,6 +17,8 @@ function initConfig() {
             localStorage.setItem('gemini_api_key', e.target.value);
         });
     }
+
+    loadCacheStats();
 }
 
 async function loadConfig() {
@@ -102,4 +106,34 @@ function setVal(id, val) {
 function getVal(id) {
     const el = document.getElementById(id);
     return el ? el.value.trim() : '';
+}
+
+async function loadCacheStats() {
+    try {
+        const res = await fetch('/api/cache/stats');
+        if (res.ok) {
+            const data = await res.json();
+            const stats = data.stats || {};
+            document.getElementById('cache-entries-count').innerText = stats.total_entries || 0;
+            document.getElementById('cache-hits-count').innerText = stats.hits || 0;
+            document.getElementById('cache-hit-rate').innerText = (stats.hit_rate !== undefined ? stats.hit_rate : 0) + '%';
+        }
+    } catch (err) {
+        console.error("Failed to load cache stats:", err);
+    }
+}
+
+async function clearCache() {
+    if (!confirm("Are you sure you want to clear the LLM answer cache?")) return;
+    try {
+        const res = await fetch('/api/cache', { method: 'DELETE' });
+        if (res.ok) {
+            alert("Cache cleared successfully!");
+            loadCacheStats();
+        } else {
+            alert("Failed to clear cache.");
+        }
+    } catch (err) {
+        alert("Error clearing cache: " + err.message);
+    }
 }

@@ -22,9 +22,16 @@
                     <span>Job Application Dashboard</span>
                 </div>
             </div>
-            <div class="system-status">
-                <div class="status-dot online" id="connection-status"></div>
-                <span id="connection-text">Connecting to server...</span>
+            <div class="system-status" style="display: flex; gap: 1.5rem; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div class="status-dot" id="session-status-dot" style="background: #ef4444; width: 8px; height: 8px; border-radius: 50%;"></div>
+                    <span id="session-status-text" style="font-size: 0.8rem; color: var(--text-secondary);">Session: Checking...</span>
+                    <button id="verify-session-btn" onclick="verifySession()" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.7rem; line-height: 1; border-radius: 0.25rem; margin-left: 0.25rem;">Verify</button>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div class="status-dot online" id="connection-status"></div>
+                    <span id="connection-text">Connecting to server...</span>
+                </div>
             </div>
         </header>
 
@@ -68,11 +75,38 @@
                             <label for="search-pages">Max Pages to Search</label>
                             <input type="number" id="search-pages" class="form-control" value="2" min="1" max="5">
                         </div>
-                        <div class="form-group" style="margin-top: 1.5rem;">
+                        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; margin-bottom: 0.75rem;">
+                            <input type="checkbox" id="search-easy-apply" checked style="width: auto; margin: 0; cursor: pointer;">
+                            <label for="search-easy-apply" style="margin: 0; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); user-select: none;">Easy Apply Only</label>
+                        </div>
+                        <div class="form-group" style="margin-top: 1.25rem;">
                             <button class="btn btn-primary" id="search-jobs-btn" style="width: 100%;">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                                 Search LinkedIn
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Saved Search Profiles -->
+                    <div class="glass-card" style="margin-top: 1.5rem;">
+                        <h3 style="font-size: 1rem; font-weight:600; margin-bottom:1rem; letter-spacing:0.03em;">SAVED PROFILES</h3>
+                        <div class="form-group">
+                            <label for="profile-selector">Select Profile</label>
+                            <select id="profile-selector" class="form-control" style="background: rgba(255, 255, 255, 0.05); color: var(--text-primary); border: 1px solid rgba(255, 255, 255, 0.1);">
+                                <option value="">-- Select a Profile --</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            <button class="btn btn-primary" id="run-profile-btn" style="flex: 1;" disabled>Run Profile</button>
+                            <button class="btn btn-danger" id="delete-profile-btn" style="padding: 0 0.75rem;" title="Delete Profile" disabled>🗑️</button>
+                        </div>
+                        <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 1rem 0;">
+                        <div class="form-group">
+                            <label for="new-profile-name">Save Current Search As Profile</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="new-profile-name" class="form-control" placeholder="Profile Name" style="min-width: 0;">
+                                <button class="btn btn-success" id="save-profile-btn" style="flex-shrink: 0;">Save</button>
+                            </div>
                         </div>
                     </div>
 
@@ -206,6 +240,32 @@
                     <button class="btn btn-primary" id="save-config-btn">Save Profile</button>
                 </div>
             </div>
+ 
+            <!-- Cache Settings -->
+            <div class="glass-card" style="max-width: 700px; margin-top: 1.5rem;">
+                <h3 style="font-size: 1.1rem; font-weight:600; margin-bottom:1.25rem;">LLM ANSWER CACHE</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                    Pre-filled answers to screening questions are cached to avoid repeated LLM calls and reduce API costs.
+                </p>
+                <div class="config-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary);" id="cache-entries-count">0</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Total Entries</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--success);" id="cache-hits-count">0</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Cache Hits</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--warning);" id="cache-hit-rate">0%</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Hit Rate</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem;">
+                    <button class="btn btn-secondary" id="refresh-cache-btn">Refresh Stats</button>
+                    <button class="btn btn-danger" id="clear-cache-btn">Clear Cache</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -240,12 +300,12 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/templates/js/websocket.js"></script>
-    <script src="/templates/js/search.js"></script>
-    <script src="/templates/js/apply.js"></script>
-    <script src="/templates/js/resume.js"></script>
-    <script src="/templates/js/config.js"></script>
-    <script src="/templates/js/history.js"></script>
+    <script src="/templates/js/websocket.js?v=2"></script>
+    <script src="/templates/js/search.js?v=2"></script>
+    <script src="/templates/js/apply.js?v=2"></script>
+    <script src="/templates/js/resume.js?v=2"></script>
+    <script src="/templates/js/config.js?v=2"></script>
+    <script src="/templates/js/history.js?v=2"></script>
     <script>
         // Page tab switching
         function switchPage(pageId) {

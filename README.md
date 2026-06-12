@@ -11,11 +11,14 @@ Supports LinkedIn Easy Apply, Workday, Greenhouse, Lever, and other ATS portals 
 
 - **🎨 Premium Dashboard UI** — Dark mode glassmorphism interface with real-time streaming logs, match analytics, and application history tracking.
 - **🧠 AI-Powered Job Matching** — Scores jobs against your resume (0-100) using Gemini or Ollama (local). Highlights matching skills, skill gaps, and generates personalized outreach notes.
+- **⚡ LLM Answer Cache** — Screening question answers are normalized and cached locally (`data/answer_cache.json`) to prevent redundant LLM calls, minimizing latency and API costs.
 - **🤖 Multi-ATS Automation** — Handles LinkedIn Easy Apply, Workday, Greenhouse, and unknown ATS portals. Auto-fills forms, uploads resume, pauses for HITL on complex fields.
-- **🛡️ Account Safety** — Rate limiting (configurable per hour/day), randomized delays, duplicate detection, and never submits without your review.
+- **🛡️ Account Safety & Circuit Breaker** — Multi-level protection with hourly/daily rate limits and a session health circuit breaker that trips after 3 failures for a 5-minute safety cooldown.
+- **⚙️ Saved Search Profiles** — Save and trigger custom search configurations (keywords, locations, search depths) directly from the dashboard sidebar.
 - **📊 Application History** — SQLite-backed tracking of every application with stats, dedup prevention, and searchable history.
 - **📄 Resume Management** — Upload PDF via drag-and-drop, automatic text extraction for AI scoring.
 - **🔧 Zero Hardcoded PII** — All personal data lives in `config.local.yaml` (gitignored). Anyone can fork and use this tool.
+
 
 ---
 

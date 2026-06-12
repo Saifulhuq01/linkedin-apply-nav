@@ -7,11 +7,21 @@ let selectedJob = null;
 
 function initSearch() {
     document.getElementById('search-jobs-btn').addEventListener('click', startJobSearch);
+    
+    // Saved Search Profiles controls
+    document.getElementById('profile-selector')?.addEventListener('change', onProfileSelect);
+    document.getElementById('run-profile-btn')?.addEventListener('click', runSearchProfile);
+    document.getElementById('delete-profile-btn')?.addEventListener('click', deleteSearchProfile);
+    document.getElementById('save-profile-btn')?.addEventListener('click', saveSearchProfile);
 
     onWsMessage(msg => {
         if (msg.type === 'search_results') displayJobs(msg.jobs);
         else if (msg.type === 'score_result') updateJobScore(msg.job_id, msg.analysis);
     });
+
+    loadSearchProfiles();
+    pollSessionHealth();
+    setInterval(pollSessionHealth, 15000); // Poll every 15s
 }
 
 async function startJobSearch() {
@@ -19,6 +29,7 @@ async function startJobSearch() {
     const location = document.getElementById('search-location').value;
     const pages = parseInt(document.getElementById('search-pages').value) || 2;
     const apiKey = document.getElementById('gemini-key').value;
+    const easyApply = document.getElementById('search-easy-apply')?.checked !== false;
 
     document.getElementById('search-jobs-btn').disabled = true;
     document.getElementById('search-jobs-btn').innerText = 'Searching...';
@@ -34,7 +45,7 @@ async function startJobSearch() {
         const res = await fetch('/api/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keywords, location, max_pages: pages, gemini_key: apiKey })
+            body: JSON.stringify({ keywords, location, max_pages: pages, gemini_key: apiKey, easy_apply: easyApply })
         });
         if (!res.ok) {
             const err = await res.json();
@@ -73,8 +84,14 @@ function displayJobs(jobs) {
         card.id = `job-card-${job.job_id}`;
         card.onclick = () => selectJob(job.job_id);
 
-        const atsClass = (job.ats_type || 'easy_apply').replace('_', '-');
-        const atsLabel = job.ats_type === 'easy_apply' ? 'Easy Apply' : (job.ats_type || 'Easy Apply');
+        let atsClass = (job.ats_type || 'easy_apply').replace('_', '-');
+        let atsLabel = job.ats_type === 'easy_apply' ? 'Easy Apply' : (job.ats_type || 'External');
+        if (atsClass === 'unknown') {
+            atsClass = 'external';
+            atsLabel = 'External';
+        } else {
+            atsLabel = atsLabel.charAt(0).toUpperCase() + atsLabel.slice(1);
+        }
         const appliedBadge = job.already_applied ? '<span class="ats-badge applied-badge">Applied</span>' : '';
 
         card.innerHTML = `
@@ -156,7 +173,15 @@ function renderJobDetail(job) {
     }
 
     const applyBtnDisabled = job.already_applied ? 'disabled' : '';
-    const applyBtnText = job.already_applied ? 'Already Applied' : 'Apply Easy-Apply';
+    let applyBtnText = 'Already Applied';
+    if (!job.already_applied) {
+        if (job.ats_type === 'easy_apply') {
+            applyBtnText = 'Apply Easy-Apply';
+        } else {
+            const platform = job.ats_type === 'unknown' ? 'External' : (job.ats_type.charAt(0).toUpperCase() + job.ats_type.slice(1));
+            applyBtnText = `Apply ${platform}`;
+        }
+    }
 
     container.innerHTML = `
         <div class="detail-header">
@@ -192,4 +217,216 @@ function copyOutreach() {
         btn.style.background = 'var(--success)';
         setTimeout(() => { btn.innerText = 'Copy Note'; btn.style.background = 'rgba(255, 255, 255, 0.05)'; }, 2000);
     });
+}
+
+async function loadSearchProfiles() {
+    try {
+        const res = await fetch('/api/search-profiles');
+        if (res.ok) {
+            const profiles = await res.json();
+            const selector = document.getElementById('profile-selector');
+            if (selector) {
+                selector.innerHTML = '<option value="">-- Select a Profile --</option>';
+                profiles.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.name;
+                    opt.innerText = p.name;
+                    opt.dataset.keywords = p.keywords;
+                    opt.dataset.location = p.location;
+                    opt.dataset.maxPages = p.max_pages;
+                    opt.dataset.easyApply = p.easy_apply !== false;
+                    selector.appendChild(opt);
+                });
+            }
+            onProfileSelect();
+        }
+    } catch (err) {
+        console.error("Failed to load search profiles:", err);
+    }
+}
+
+function onProfileSelect() {
+    const selector = document.getElementById('profile-selector');
+    const runBtn = document.getElementById('run-profile-btn');
+    const deleteBtn = document.getElementById('delete-profile-btn');
+    
+    if (selector && selector.value) {
+        if (runBtn) runBtn.removeAttribute('disabled');
+        if (deleteBtn) deleteBtn.removeAttribute('disabled');
+        
+        const opt = selector.options[selector.selectedIndex];
+        document.getElementById('search-keywords').value = opt.dataset.keywords || '';
+        document.getElementById('search-location').value = opt.dataset.location || '';
+        document.getElementById('search-pages').value = opt.dataset.maxPages || '2';
+        const easyApplyInput = document.getElementById('search-easy-apply');
+        if (easyApplyInput) {
+            easyApplyInput.checked = opt.dataset.easyApply !== 'false';
+        }
+    } else {
+        if (runBtn) runBtn.setAttribute('disabled', 'true');
+        if (deleteBtn) deleteBtn.setAttribute('disabled', 'true');
+    }
+}
+
+async function saveSearchProfile() {
+    const nameInput = document.getElementById('new-profile-name');
+    const name = nameInput ? nameInput.value.trim() : '';
+    if (!name) {
+        alert("Please enter a profile name.");
+        return;
+    }
+    
+    const keywords = document.getElementById('search-keywords').value.trim();
+    const location = document.getElementById('search-location').value.trim();
+    const max_pages = parseInt(document.getElementById('search-pages').value) || 2;
+    const easy_apply = document.getElementById('search-easy-apply')?.checked !== false;
+    
+    try {
+        const res = await fetch('/api/search-profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, keywords, location, max_pages, easy_apply })
+        });
+        if (res.ok) {
+            nameInput.value = '';
+            await loadSearchProfiles();
+            const selector = document.getElementById('profile-selector');
+            if (selector) {
+                selector.value = name;
+                onProfileSelect();
+            }
+        } else {
+            alert("Failed to save search profile.");
+        }
+    } catch (err) {
+        alert("Error saving search profile: " + err.message);
+    }
+}
+
+async function deleteSearchProfile() {
+    const selector = document.getElementById('profile-selector');
+    const name = selector ? selector.value : '';
+    if (!name) return;
+    
+    if (!confirm(`Are you sure you want to delete profile "${name}"?`)) return;
+    
+    try {
+        const res = await fetch(`/api/search-profiles/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            await loadSearchProfiles();
+        } else {
+            alert("Failed to delete search profile.");
+        }
+    } catch (err) {
+        alert("Error deleting search profile: " + err.message);
+    }
+}
+
+async function runSearchProfile() {
+    const selector = document.getElementById('profile-selector');
+    const name = selector ? selector.value : '';
+    if (!name) return;
+    
+    const apiKey = document.getElementById('gemini-key').value;
+    const runBtn = document.getElementById('run-profile-btn');
+    const originalText = runBtn.innerText;
+    
+    runBtn.disabled = true;
+    runBtn.innerText = 'Starting...';
+    
+    try {
+        const res = await fetch(`/api/search-profiles/${encodeURIComponent(name)}/run?gemini_key=${encodeURIComponent(apiKey)}`, {
+            method: 'POST'
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            alert(`Failed to run search profile: ${err.detail || 'Unknown error'}`);
+        }
+    } catch (err) {
+        alert(`Error running search profile: ${err.message}`);
+    } finally {
+        runBtn.disabled = false;
+        runBtn.innerText = originalText;
+    }
+}
+
+async function pollSessionHealth() {
+    const dot = document.getElementById('session-status-dot');
+    const text = document.getElementById('session-status-text');
+    try {
+        const res = await fetch('/api/session/health');
+        if (res.ok) {
+            const data = await res.json();
+            if (dot && text) {
+                if (data.circuit_open) {
+                    dot.style.background = '#f59e0b';
+                    text.innerText = `Session: Cooldown (${data.remaining_cooldown_seconds}s)`;
+                } else if (data.session_valid) {
+                    dot.style.background = '#10b981';
+                    text.innerText = 'Session: Active';
+                } else {
+                    dot.style.background = '#ef4444';
+                    text.innerText = 'Session: Inactive / Expired';
+                }
+            }
+        } else {
+            if (dot && text) {
+                dot.style.background = '#ef4444';
+                text.innerText = 'Session: Server Error (' + res.status + ')';
+            }
+        }
+    } catch (err) {
+        console.error("Failed to poll session health:", err);
+        if (dot && text) {
+            dot.style.background = '#ef4444';
+            text.innerText = 'Session: Offline (Retrying)';
+        }
+    }
+}
+
+async function verifySession() {
+    const btn = document.getElementById('verify-session-btn');
+    const dot = document.getElementById('session-status-dot');
+    const text = document.getElementById('session-status-text');
+    
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Verifying...';
+    }
+    if (dot) dot.style.background = '#f59e0b';
+    if (text) text.innerText = 'Session: Verifying...';
+
+    try {
+        const res = await fetch('/api/session/verify', { method: 'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.session_valid) {
+                if (dot) dot.style.background = '#10b981';
+                if (text) text.innerText = 'Session: Active';
+                alert("LinkedIn session is active and valid!");
+            } else {
+                if (dot) dot.style.background = '#ef4444';
+                if (text) text.innerText = 'Session: Inactive / Expired';
+                alert("LinkedIn session is expired or invalid. Please login via terminal first.");
+            }
+        } else {
+            let detail = 'Server error';
+            try {
+                const err = await res.json();
+                detail = err.detail || detail;
+            } catch (e) {}
+            alert(`Verification failed: ${detail}`);
+            pollSessionHealth();
+        }
+    } catch (err) {
+        alert(`Verification failed: ${err.message}`);
+        pollSessionHealth();
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = 'Verify';
+        }
+    }
 }

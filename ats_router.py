@@ -7,8 +7,26 @@ to the appropriate handler for semi-automated form filling.
 
 import re
 import logging
+import urllib.parse
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
+
+
+def clean_apply_url(url: str) -> str:
+    """Extract and decode the target URL from LinkedIn safety warning redirect links."""
+    if not url:
+        return ""
+    if "linkedin.com/safety/go" in url or "linkedin.com/safety/go?" in url:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query)
+            if "url" in params:
+                decoded_url = params["url"][0]
+                logger.info("Decoded safety redirect URL: %s -> %s", url[:50], decoded_url[:100])
+                return decoded_url
+        except Exception as e:
+            logger.warning("Failed to parse safety warning URL %s: %s", url, e)
+    return url
 
 logger = logging.getLogger("apply_nav.ats_router")
 
@@ -68,12 +86,13 @@ def detect_ats_type(url: str) -> str:
     if not url:
         return "unknown"
 
-    url_lower = url.lower()
+    cleaned_url = clean_apply_url(url)
+    url_lower = cleaned_url.lower()
 
     for ats_type, patterns in ATS_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, url_lower):
-                logger.info("Detected ATS type '%s' from URL: %s", ats_type, url[:100])
+                logger.info("Detected ATS type '%s' from URL: %s", ats_type, cleaned_url[:100])
                 return ats_type
 
     logger.info("Unknown ATS type for URL: %s", url[:100])

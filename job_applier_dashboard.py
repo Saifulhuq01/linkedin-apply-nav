@@ -39,6 +39,7 @@ from resume_manager import (
     migrate_legacy_resume,
 )
 from llm_adapter import LLMAdapter
+from answer_cache import AnswerCache
 from ats_router import detect_ats_type, get_handler_for_ats, ApplyResult
 
 # Add the mcp server directory to path
@@ -100,7 +101,8 @@ def save_config(config: Dict[str, Any]) -> None:
 
 # ─── Global State ───
 CONFIG = load_config()
-LLM = LLMAdapter(CONFIG)
+ANSWER_CACHE = AnswerCache()
+LLM = LLMAdapter(CONFIG, answer_cache=ANSWER_CACHE)
 
 active_connections: List[WebSocket] = []
 current_apply_task: Optional[asyncio.Task] = None
@@ -116,6 +118,13 @@ _shared_page = None
 _session_valid = False
 _session_lock = asyncio.Lock()
 
+# Circuit breaker state for session health
+_circuit_open = False
+_circuit_fail_count = 0
+_circuit_last_failure = 0.0
+_CIRCUIT_MAX_FAILURES = 3
+_CIRCUIT_RESET_SECONDS = 300  # 5 minutes half-open
+
 
 # ─── Pydantic Models ───
 
@@ -124,6 +133,7 @@ class SearchRequest(BaseModel):
     location: str
     max_pages: int = 2
     gemini_key: Optional[str] = None
+    easy_apply: bool = True
 
 class ApplyRequest(BaseModel):
     job_id: str
@@ -142,17 +152,48 @@ class ConfigUpdateRequest(BaseModel):
     search: Optional[Dict[str, Any]] = None
     llm: Optional[Dict[str, Any]] = None
 
+class SearchProfile(BaseModel):
+    name: str
+    keywords: str
+    location: str
+    max_pages: int = 2
+    easy_apply: bool = True
+
 
 # ─── Shared Browser Session ───
 
 async def get_shared_session(log_fn=None):
-    """Get or create a shared persistent browser context for search operations."""
+    """Get or create a shared persistent browser context for search operations.
+    
+    Includes circuit breaker: after 3 consecutive failures, refuses to open
+    new sessions for 5 minutes to avoid hammering LinkedIn.
+    """
     global _shared_pw, _shared_context, _shared_page, _session_valid
+    global _circuit_open, _circuit_fail_count, _circuit_last_failure
 
     async def log(msg, level="info"):
         if log_fn:
             await log_fn(msg, level)
         logger.info(msg)
+
+    # Circuit breaker check
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed < _CIRCUIT_RESET_SECONDS:
+            remaining = int(_CIRCUIT_RESET_SECONDS - elapsed)
+            await log(
+                f"Circuit breaker OPEN — session failed {_circuit_fail_count} times. "
+                f"Auto-retry in {remaining}s. Re-login if persistent.",
+                "error"
+            )
+            raise RuntimeError(
+                f"Circuit breaker open: {_circuit_fail_count} consecutive session failures. "
+                f"Retry in {remaining}s or run: linkedin-mcp-server --login"
+            )
+        else:
+            # Half-open: allow one retry
+            await log("Circuit breaker half-open — attempting session recovery...", "warning")
+            _circuit_open = False
 
     async with _session_lock:
         if _shared_context and _session_valid:
@@ -171,9 +212,9 @@ async def get_shared_session(log_fn=None):
 
         await log("Opening shared LinkedIn browser session...")
 
-        _shared_pw = await async_playwright().start()
-
         try:
+            _shared_pw = await async_playwright().start()
+
             _shared_context = await _shared_pw.chromium.launch_persistent_context(
                 user_data_dir=str(SOURCE_PROFILE_DIR),
                 headless=True,
@@ -182,57 +223,78 @@ async def get_shared_session(log_fn=None):
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
             )
             await log("✓ Browser session opened!", "success")
-        except Exception as e:
-            await log(f"Failed to open browser: {e}", "error")
-            raise
+            
+            _shared_page = _shared_context.pages[0] if _shared_context.pages else await _shared_context.new_page()
 
-        _shared_page = _shared_context.pages[0] if _shared_context.pages else await _shared_context.new_page()
+            # Validate session
+            await log("Validating LinkedIn session...")
+            try:
+                response = await _shared_page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20000)
+                status = response.status if response else 0
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                if "ERR_TOO_MANY_REDIRECTS" in str(e):
+                    await log("Rate limited. Waiting 15s and retrying...", "warning")
+                    await asyncio.sleep(15)
+                    try:
+                        response = await _shared_page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20000)
+                        status = response.status if response else 0
+                        await asyncio.sleep(2.0)
+                    except Exception:
+                        await log("Still rate limited. Session may need re-login.", "error")
+                        raise
+                else:
+                    await log(f"Navigation error: {e}", "error")
+                    raise
 
-        # Validate session
-        await log("Validating LinkedIn session...")
-        try:
-            response = await _shared_page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20000)
-            status = response.status if response else 0
-            await asyncio.sleep(2.0)
-        except Exception as e:
-            if "ERR_TOO_MANY_REDIRECTS" in str(e):
-                await log("Rate limited. Waiting 15s and retrying...", "warning")
+            url = _shared_page.url
+            if status == 429:
+                await log("LinkedIn 429. Waiting 15s...", "warning")
                 await asyncio.sleep(15)
                 try:
                     response = await _shared_page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20000)
-                    status = response.status if response else 0
-                    await asyncio.sleep(2.0)
-                except Exception:
-                    await log("Still rate limited. Session may need re-login.", "error")
-                    raise
-            else:
-                await log(f"Navigation error: {e}", "error")
-                raise
+                    url = _shared_page.url
+                except Exception: pass
 
-        url = _shared_page.url
-        if status == 429:
-            await log("LinkedIn 429. Waiting 15s...", "warning")
-            await asyncio.sleep(15)
-            try:
-                response = await _shared_page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=20000)
-                url = _shared_page.url
-            except Exception: pass
+            if any(x in url for x in ["/login", "/authwall", "/checkpoint"]):
+                is_login = await _shared_page.evaluate(
+                    "() => !!document.querySelector('#session_key, .login__form, form[action*=\"login\"]')"
+                )
+                if is_login:
+                    _session_valid = False
+                    raise RuntimeError("LinkedIn session expired. Run: linkedin-mcp-server --login")
 
-        if any(x in url for x in ["/login", "/authwall", "/checkpoint"]):
-            is_login = await _shared_page.evaluate(
-                "() => !!document.querySelector('#session_key, .login__form, form[action*=\"login\"]')"
-            )
-            if is_login:
+            if status == 999:
                 _session_valid = False
-                raise RuntimeError("LinkedIn session expired. Run: linkedin-mcp-server --login")
+                raise RuntimeError("LinkedIn anti-bot detection. Need fresh session.")
 
-        if status == 999:
+            _session_valid = True
+            _circuit_fail_count = 0  # Reset on success
+            await log("LinkedIn session active!", "success")
+            return _shared_context, _shared_page
+
+        except Exception as e:
+            # Increment failure count and trip circuit breaker if threshold is hit
+            _circuit_fail_count += 1
+            _circuit_last_failure = time.time()
+            if _circuit_fail_count >= _CIRCUIT_MAX_FAILURES:
+                _circuit_open = True
+                await log(f"Circuit breaker tripped! Session failed {_circuit_fail_count} times consecutively.", "error")
+            else:
+                await log(f"Session validation failed (attempt {_circuit_fail_count}/{_CIRCUIT_MAX_FAILURES}): {e}", "warning")
+
             _session_valid = False
-            raise RuntimeError("LinkedIn anti-bot detection. Need fresh session.")
-
-        _session_valid = True
-        await log("LinkedIn session active!", "success")
-        return _shared_context, _shared_page
+            # Clean up playwright context/process on failure
+            if _shared_context:
+                try: await _shared_context.close()
+                except Exception: pass
+                _shared_context = None
+                _shared_page = None
+            if _shared_pw:
+                try: await _shared_pw.stop()
+                except Exception: pass
+                _shared_pw = None
+            raise
 
 
 async def close_shared_session():
@@ -353,8 +415,130 @@ async def update_config(request: ConfigUpdateRequest):
 
     save_config(cfg)
     CONFIG = cfg
-    LLM = LLMAdapter(CONFIG)
+    ANSWER_CACHE_REF = ANSWER_CACHE  # reuse same cache instance
+    LLM = LLMAdapter(CONFIG, answer_cache=ANSWER_CACHE_REF)
     return {"status": "success"}
+
+
+# ─── Cache Endpoints ───
+
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    return {
+        "stats": ANSWER_CACHE.stats(),
+        "entries": ANSWER_CACHE.entries()
+    }
+
+@app.delete("/api/cache")
+async def clear_cache():
+    ANSWER_CACHE.clear()
+    return {"status": "success"}
+
+
+# ─── Search Profile Endpoints ───
+
+@app.get("/api/search-profiles")
+async def get_search_profiles():
+    cfg = load_config()
+    return cfg.get("search_profiles", [])
+
+@app.post("/api/search-profiles")
+async def save_search_profile(profile: SearchProfile):
+    cfg = load_config()
+    profiles = cfg.get("search_profiles", [])
+    
+    found = False
+    for i, p in enumerate(profiles):
+        if p.get("name") == profile.name:
+            profiles[i] = profile.model_dump()
+            found = True
+            break
+    if not found:
+        profiles.append(profile.model_dump())
+        
+    cfg["search_profiles"] = profiles
+    save_config(cfg)
+    global CONFIG
+    CONFIG = cfg
+    return {"status": "success"}
+
+@app.delete("/api/search-profiles/{name}")
+async def delete_search_profile(name: str):
+    cfg = load_config()
+    profiles = cfg.get("search_profiles", [])
+    profiles = [p for p in profiles if p.get("name") != name]
+    cfg["search_profiles"] = profiles
+    save_config(cfg)
+    global CONFIG
+    CONFIG = cfg
+    return {"status": "success"}
+
+@app.post("/api/search-profiles/{name}/run")
+async def run_search_profile(name: str, gemini_key: Optional[str] = None):
+    global CONFIG, LLM
+    if apply_status in ["applying", "paused_for_question", "paused_for_review"]:
+        raise HTTPException(400, "Apply task in progress. Cancel it first.")
+    if apply_status == "searching":
+        raise HTTPException(400, "Search already in progress.")
+        
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed < _CIRCUIT_RESET_SECONDS:
+            raise HTTPException(503, f"Circuit breaker is open. Cooldown remaining: {int(_CIRCUIT_RESET_SECONDS - elapsed)}s.")
+        
+    cfg = load_config()
+    profiles = cfg.get("search_profiles", [])
+    profile = next((p for p in profiles if p.get("name") == name), None)
+    if not profile:
+        raise HTTPException(404, "Search profile not found")
+        
+    if gemini_key:
+        LLM.override_api_key(gemini_key)
+        
+    req = SearchRequest(
+        keywords=profile.get("keywords", ""),
+        location=profile.get("location", ""),
+        max_pages=profile.get("max_pages", 2),
+        gemini_key=gemini_key,
+        easy_apply=profile.get("easy_apply", True)
+    )
+    asyncio.create_task(run_search_background(req))
+    return {"status": "searching"}
+
+
+# ─── Session Health Endpoints ───
+
+@app.get("/api/session/health")
+async def get_session_health():
+    is_open = _circuit_open
+    if is_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed >= _CIRCUIT_RESET_SECONDS:
+            is_open = False
+            
+    remaining = 0
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        remaining = max(0, int(_CIRCUIT_RESET_SECONDS - elapsed))
+        
+    return {
+        "session_valid": _session_valid,
+        "circuit_open": is_open,
+        "fail_count": _circuit_fail_count,
+        "remaining_cooldown_seconds": remaining,
+    }
+
+
+@app.post("/api/session/verify")
+async def verify_session():
+    global _session_valid
+    try:
+        # Close any open shared session to force a fresh re-validation
+        await close_shared_session()
+        await get_shared_session()
+        return {"status": "success", "session_valid": _session_valid}
+    except Exception as e:
+        raise HTTPException(500, f"Session validation failed: {e}")
 
 
 # ─── Resume Endpoints ───
@@ -429,6 +613,11 @@ async def search_jobs(request: SearchRequest):
     if apply_status == "searching":
         raise HTTPException(400, "Search already in progress.")
 
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed < _CIRCUIT_RESET_SECONDS:
+            raise HTTPException(503, f"Circuit breaker is open. Cooldown remaining: {int(_CIRCUIT_RESET_SECONDS - elapsed)}s.")
+
     # Override LLM key if provided from frontend
     if request.gemini_key:
         LLM.override_api_key(request.gemini_key)
@@ -443,6 +632,11 @@ async def apply_job(request: ApplyRequest):
         raise HTTPException(400, "Search in progress. Wait for it to finish.")
     if apply_status in ["applying", "paused_for_question", "paused_for_review"]:
         raise HTTPException(400, "Apply task in progress.")
+
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed < _CIRCUIT_RESET_SECONDS:
+            raise HTTPException(503, f"Circuit breaker is open. Cooldown remaining: {int(_CIRCUIT_RESET_SECONDS - elapsed)}s.")
 
     # Check duplicate
     if db.is_already_applied(request.job_id):
@@ -470,6 +664,11 @@ async def apply_external(request: ApplyExternalRequest):
     global current_apply_task
     if apply_status in ["applying", "paused_for_question", "paused_for_review"]:
         raise HTTPException(400, "Apply task in progress.")
+
+    if _circuit_open:
+        elapsed = time.time() - _circuit_last_failure
+        if elapsed < _CIRCUIT_RESET_SECONDS:
+            raise HTTPException(503, f"Circuit breaker is open. Cooldown remaining: {int(_CIRCUIT_RESET_SECONDS - elapsed)}s.")
 
     if db.is_already_applied(request.job_id):
         raise HTTPException(400, "Already applied to this job.")
@@ -534,11 +733,11 @@ async def run_search_background(request: SearchRequest):
             keywords=request.keywords,
             location=request.location,
             max_pages=request.max_pages,
-            easy_apply=True
+            easy_apply=request.easy_apply
         )
 
         job_ids = search_result.get("job_ids", [])
-        await broadcast_log(f"Found {len(job_ids)} Easy Apply jobs.", "success")
+        await broadcast_log(f"Found {len(job_ids)} jobs.", "success")
 
         # Record search in DB
         db.record_search(request.keywords, request.location, len(job_ids))
@@ -563,11 +762,47 @@ async def run_search_background(request: SearchRequest):
                 location = lines[2] if len(lines) > 2 else request.location
                 desc = "\n".join(lines[3:]) if len(lines) > 3 else posting
 
+                # Detect apply details from page DOM
+                apply_info = await page.evaluate("""() => {
+                    const allLinks = Array.from(document.querySelectorAll('a'));
+                    const easyApplyLink = allLinks.find(a =>
+                        a.href && a.href.includes('openSDUIApplyFlow=true')
+                    );
+                    if (easyApplyLink) {
+                        return { type: 'easy_apply', href: null };
+                    }
+                    const allButtons = Array.from(document.querySelectorAll('button'));
+                    const easyApplyBtn = allButtons.find(b =>
+                        b.innerText.toLowerCase().includes('easy apply') && b.offsetParent !== null
+                    );
+                    if (easyApplyBtn) {
+                        return { type: 'easy_apply', href: null };
+                    }
+                    const applyLink = allLinks.find(a => {
+                        const text = a.innerText?.trim().toLowerCase() || '';
+                        return text === 'apply' && a.offsetParent !== null;
+                    });
+                    if (applyLink) {
+                        return { type: 'external_apply', href: applyLink.href };
+                    }
+                    return { type: 'unknown', href: null };
+                }""")
+
+                ats_type = "easy_apply"
+                apply_url = None
+                if apply_info["type"] == "external_apply":
+                    from ats_router import clean_apply_url, detect_ats_type
+                    apply_url = clean_apply_url(apply_info["href"])
+                    ats_type = detect_ats_type(apply_url)
+                elif apply_info["type"] == "unknown":
+                    ats_type = "unknown"
+
                 record = {
                     "job_id": job_id, "title": title, "company": company,
                     "location": location, "description": desc[:2000], "analysis": None,
                     "already_applied": existing_status in ("applied", "pending"),
-                    "ats_type": "easy_apply",
+                    "ats_type": ats_type,
+                    "apply_url": apply_url,
                 }
                 active_jobs.append(record)
                 await broadcast_json({"type": "search_results", "jobs": active_jobs})
@@ -765,11 +1000,13 @@ async def run_apply_background(request: ApplyRequest):
         # If external apply, detect ATS and route
         if apply_info["type"] == "external_apply":
             external_url = apply_info.get("href", "")
-            ats_type = detect_ats_type(external_url)
-            await broadcast_log(f"External application detected: {ats_type.upper()} — {external_url[:80]}", "info")
+            from ats_router import clean_apply_url
+            cleaned_external_url = clean_apply_url(external_url)
+            ats_type = detect_ats_type(cleaned_external_url)
+            await broadcast_log(f"External application detected: {ats_type.upper()} — {cleaned_external_url[:80]}", "info")
 
             # Navigate to external URL
-            await page.goto(external_url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(cleaned_external_url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(3)
 
             # Get appropriate handler
@@ -786,9 +1023,24 @@ async def run_apply_background(request: ApplyRequest):
                 question_callback=lambda f, s: solve_screening_question(f, s),
             )
 
-            db.update_application_status(request.job_id, result.status, result.message)
-            await broadcast_log(result.message, "success" if result.status == "applied" else "warning")
-            await broadcast_status("completed" if result.status == "applied" else "idle")
+            if result.status == "manual_needed":
+                # Pause for final manual review and submission by user in browser
+                await broadcast_status("paused_for_review")
+                question_event.clear()
+                await question_event.wait()
+
+                if user_answer == "__SUBMIT__":
+                    await broadcast_log("✅ Manual submission confirmed by user.", "success")
+                    db.update_application_status(request.job_id, "applied")
+                    await broadcast_status("completed")
+                else:
+                    await broadcast_log("Cancelled.", "error")
+                    db.update_application_status(request.job_id, "cancelled")
+                    await broadcast_status("idle")
+            else:
+                db.update_application_status(request.job_id, result.status, result.message)
+                await broadcast_log(result.message, "success" if result.status == "applied" else "warning")
+                await broadcast_status("completed" if result.status == "applied" else "idle")
             return
 
         # Easy Apply flow
@@ -877,8 +1129,10 @@ async def run_external_apply_background(request: ApplyExternalRequest):
     resume_text = get_resume_text()
     resume_pdf = get_resume_pdf_path()
 
-    ats_type = detect_ats_type(request.apply_url)
-    await broadcast_log(f"External apply: {ats_type.upper()} — {request.apply_url[:80]}", "info")
+    from ats_router import clean_apply_url
+    cleaned_url = clean_apply_url(request.apply_url)
+    ats_type = detect_ats_type(cleaned_url)
+    await broadcast_log(f"External apply: {ats_type.upper()} — {cleaned_url[:80]}", "info")
 
     # Record in DB
     job_info = next((j for j in active_jobs if j["job_id"] == request.job_id), {})
@@ -888,7 +1142,7 @@ async def run_external_apply_background(request: ApplyExternalRequest):
         company=job_info.get("company", ""),
         ats_type=ats_type,
         status="pending",
-        apply_url=request.apply_url,
+        apply_url=cleaned_url,
     )
 
     await close_shared_session()
@@ -908,7 +1162,7 @@ async def run_external_apply_background(request: ApplyExternalRequest):
         )
 
         page = context.pages[0] if context.pages else await context.new_page()
-        await page.goto(request.apply_url, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(cleaned_url, wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(3)
 
         handler_class = get_handler_for_ats(ats_type)
@@ -923,9 +1177,23 @@ async def run_external_apply_background(request: ApplyExternalRequest):
             broadcast=broadcast_log,
         )
 
-        db.update_application_status(request.job_id, result.status, result.message)
-        await broadcast_log(result.message, "success" if result.status == "applied" else "warning")
-        await broadcast_status("completed" if result.status == "applied" else "idle")
+        if result.status == "manual_needed":
+            await broadcast_status("paused_for_review")
+            question_event.clear()
+            await question_event.wait()
+
+            if user_answer == "__SUBMIT__":
+                await broadcast_log("✅ Manual submission confirmed by user.", "success")
+                db.update_application_status(request.job_id, "applied")
+                await broadcast_status("completed")
+            else:
+                await broadcast_log("Cancelled.", "error")
+                db.update_application_status(request.job_id, "cancelled")
+                await broadcast_status("idle")
+        else:
+            db.update_application_status(request.job_id, result.status, result.message)
+            await broadcast_log(result.message, "success" if result.status == "applied" else "warning")
+            await broadcast_status("completed" if result.status == "applied" else "idle")
 
     except asyncio.CancelledError:
         db.update_application_status(request.job_id, "cancelled")
@@ -953,6 +1221,22 @@ async def run_external_apply_background(request: ApplyExternalRequest):
 
 # ─── Startup ───
 
+async def validate_session_background():
+    """Verify session validity in the background at startup."""
+    global _session_valid
+    try:
+        if not SOURCE_PROFILE_DIR.exists():
+            logger.info("LinkedIn browser profile directory not found. Session is inactive.")
+            _session_valid = False
+            return
+            
+        logger.info("Validating LinkedIn session in background...")
+        await get_shared_session()
+        logger.info("Background session validation complete.")
+    except Exception as e:
+        logger.info("Background session validation failed: %s", e)
+
+
 @app.on_event("startup")
 async def startup():
     """Initialize database and migrate legacy files on startup."""
@@ -963,6 +1247,9 @@ async def startup():
     if not has_resume():
         if migrate_legacy_resume(WORKSPACE_DIR):
             logger.info("Legacy resume files migrated to data/resumes/")
+
+    # Validate session in background
+    asyncio.create_task(validate_session_background())
 
 
 if __name__ == "__main__":

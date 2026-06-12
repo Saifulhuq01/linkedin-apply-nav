@@ -12,6 +12,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from answer_cache import AnswerCache
+
 logger = logging.getLogger("apply_nav.llm")
 
 # ─── Prompt Templates ───
@@ -68,10 +70,11 @@ Only include fields you can confidently fill. Skip fields where you're unsure.""
 class LLMAdapter:
     """Routes LLM calls to the configured provider."""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], answer_cache: Optional[AnswerCache] = None):
         self._config = config.get("llm", {})
         self._provider = self._config.get("provider", "gemini")
         self._user_config = config.get("user", {})
+        self._answer_cache = answer_cache or AnswerCache()
         logger.info("LLM adapter initialized: provider=%s", self._provider)
 
     @property
@@ -173,7 +176,17 @@ class LLMAdapter:
         options: List[str],
         resume_text: str,
     ) -> str:
-        """Generate an answer for a screening question."""
+        """Generate an answer for a screening question.
+        
+        Checks the answer cache first. On cache miss, calls the LLM
+        and caches the result for future use.
+        """
+        # Check cache first
+        cached = self._answer_cache.get(question)
+        if cached:
+            logger.info("Answer cache HIT for: %s", question[:60])
+            return cached
+
         if not self.has_api_key() and self._provider != "ollama":
             return ""
 
@@ -191,11 +204,17 @@ class LLMAdapter:
 
         try:
             if self._provider == "gemini":
-                return await self._gemini_text(prompt)
+                answer = await self._gemini_text(prompt)
             elif self._provider == "ollama":
                 result = await self._ollama_call(prompt, json_mode=False)
-                return result if isinstance(result, str) else str(result)
-            return ""
+                answer = result if isinstance(result, str) else str(result)
+            else:
+                return ""
+
+            # Cache the answer for future use
+            if answer:
+                self._answer_cache.set(question, answer, field_type)
+            return answer
         except Exception as e:
             logger.error("LLM screening question failed: %s", e)
             return ""
