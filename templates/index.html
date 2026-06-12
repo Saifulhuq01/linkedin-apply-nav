@@ -1,167 +1,225 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>APPLY-NAV // LinkedIn Job Application Dashboard</title>
-    <meta name="description" content="Apply-Nav: AI-powered LinkedIn job application automation with resume matching, multi-ATS support, and human-in-the-loop safety.">
+    <meta name="description"
+        content="Apply-Nav: AI-powered LinkedIn job application automation with resume matching, multi-ATS support, and human-in-the-loop safety.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="/templates/css/styles.css">
     <link rel="stylesheet" href="/templates/css/components.css">
 </head>
+
 <body>
     <div class="container">
-        <!-- Header -->
+
+        <!-- ══ HEADER ══════════════════════════════════════════ -->
         <header>
             <div class="logo-section">
                 <div class="logo-symbol">A</div>
                 <div class="logo-text">
                     <h1>APPLY-NAV</h1>
-                    <span>Job Application Dashboard</span>
+                    <span>LinkedIn Job Application Dashboard</span>
                 </div>
             </div>
-            <div class="system-status" style="display: flex; gap: 1.5rem; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <div class="status-dot" id="session-status-dot" style="background: #ef4444; width: 8px; height: 8px; border-radius: 50%;"></div>
-                    <span id="session-status-text" style="font-size: 0.8rem; color: var(--text-secondary);">Session: Checking...</span>
-                    <button id="verify-session-btn" onclick="verifySession()" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.7rem; line-height: 1; border-radius: 0.25rem; margin-left: 0.25rem;">Verify</button>
+            <div class="system-status">
+                <!-- Circuit Breaker Warning -->
+                <div id="circuit-banner" class="warning-banner">
+                    ⚡ Circuit breaker open — session failed repeatedly. Please re-login.
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <div class="status-dot online" id="connection-status"></div>
-                    <span id="connection-text">Connecting to server...</span>
+                <!-- Session Status -->
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <div class="status-dot" id="session-status-dot"></div>
+                    <span id="session-status-text" style="font-size:0.8rem; color:var(--text-secondary);">Session:
+                        Checking...</span>
+                    <button id="verify-session-btn" onclick="verifySession()" class="btn btn-secondary"
+                        style="padding:0.2rem 0.5rem; font-size:0.7rem;">Verify</button>
+                </div>
+                <!-- WS Connection -->
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <div class="status-dot" id="connection-status"></div>
+                    <span id="connection-text"
+                        style="font-size:0.8rem; color:var(--text-secondary);">Connecting...</span>
                 </div>
             </div>
         </header>
 
-        <!-- Setup Banner (shown when profile is incomplete) -->
-        <div id="setup-banner" class="glass-card" style="display: none; margin-bottom: 1.5rem; border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.05);">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <span style="font-size: 1.5rem;">⚙️</span>
+        <!-- Setup Banner -->
+        <div id="setup-banner" class="glass-card"
+            style="display:none; margin-bottom:1.5rem; border-color:rgba(245,158,11,0.3); background:rgba(245,158,11,0.04);">
+            <div style="display:flex; align-items:center; gap:1rem;">
+                <span style="font-size:1.5rem;">⚙️</span>
                 <div>
-                    <strong style="color: var(--warning);">First-time setup needed</strong>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem;">
-                        Go to the <strong>Settings</strong> tab to fill in your profile and upload your resume before applying.
+                    <strong style="color:var(--warning);">First-time setup needed</strong>
+                    <p style="font-size:0.85rem; color:var(--text-secondary); margin-top:0.25rem;">
+                        Go to <strong>Settings</strong> tab to fill in your profile and upload your resume before
+                        applying.
                     </p>
                 </div>
             </div>
         </div>
 
-        <!-- Page-level Tabs -->
+        <!-- ══ PAGE TABS ════════════════════════════════════════ -->
         <div class="page-tabs">
-            <button class="page-tab active" onclick="switchPage('page-search')">🔍 Search & Apply</button>
-            <button class="page-tab" onclick="switchPage('page-history')">📊 History</button>
-            <button class="page-tab" onclick="switchPage('page-settings')">⚙️ Settings</button>
+            <button class="page-tab active" id="tab-search" onclick="switchPage('page-search', this)">🔍 Search &amp;
+                Apply</button>
+            <button class="page-tab" id="tab-history" onclick="switchPage('page-history', this)">📊 History</button>
+            <button class="page-tab" id="tab-settings" onclick="switchPage('page-settings', this)">⚙️ Settings</button>
         </div>
 
-        <!-- ════════════ PAGE: Search & Apply ════════════ -->
+        <!-- ══ PAGE: Search & Apply ═════════════════════════════ -->
         <div id="page-search" class="page-content active">
             <div class="dashboard-grid">
-                <!-- Left Sidebar -->
+
+                <!-- Sidebar -->
                 <div class="sidebar">
                     <!-- Search Config -->
                     <div class="glass-card">
-                        <h3 style="font-size: 1rem; font-weight:600; margin-bottom:1rem; letter-spacing:0.03em;">SEARCH CONFIG</h3>
+                        <h3
+                            style="font-size:0.75rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-secondary); margin-bottom:1rem;">
+                            SEARCH CONFIG</h3>
                         <div class="form-group">
                             <label for="search-keywords">Keywords</label>
-                            <input type="text" id="search-keywords" class="form-control" placeholder="e.g. Java Spring Boot Kafka">
+                            <input type="text" id="search-keywords" class="form-control"
+                                placeholder="e.g. Java Spring Boot Kafka">
                         </div>
                         <div class="form-group">
                             <label for="search-location">Location</label>
-                            <input type="text" id="search-location" class="form-control" placeholder="e.g. Chennai, Remote">
+                            <input type="text" id="search-location" class="form-control"
+                                placeholder="e.g. Chennai, Remote, India">
                         </div>
                         <div class="form-group">
-                            <label for="search-pages">Max Pages to Search</label>
+                            <label for="search-pages">Max Pages</label>
                             <input type="number" id="search-pages" class="form-control" value="2" min="1" max="5">
                         </div>
-                        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; margin-bottom: 0.75rem;">
-                            <input type="checkbox" id="search-easy-apply" checked style="width: auto; margin: 0; cursor: pointer;">
-                            <label for="search-easy-apply" style="margin: 0; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); user-select: none;">Easy Apply Only</label>
+                        <div class="form-group">
+                            <label for="search-date-posted">Date Posted</label>
+                            <select id="search-date-posted" class="form-control">
+                                <option value="">Any Time</option>
+                                <option value="r86400">Past 24 Hours</option>
+                                <option value="r604800">Past Week</option>
+                                <option value="r2592000">Past Month</option>
+                            </select>
                         </div>
-                        <div class="form-group" style="margin-top: 1.25rem;">
-                            <button class="btn btn-primary" id="search-jobs-btn" style="width: 100%;">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <div class="form-group"
+                            style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                            <input type="checkbox" id="search-easy-apply" checked
+                                style="width:auto; margin:0; cursor:pointer; accent-color:var(--accent);">
+                            <label for="search-easy-apply"
+                                style="margin:0; cursor:pointer; font-size:0.82rem; color:var(--text-secondary); user-select:none; text-transform:none; letter-spacing:0;">Easy
+                                Apply Only</label>
+                        </div>
+                        <div style="margin-top:1rem;">
+                            <button class="btn btn-primary" id="search-jobs-btn" style="width:100%;"
+                                onclick="startJobSearch()">
+                                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                                    viewBox="0 0 24 24">
+                                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                </svg>
                                 Search LinkedIn
                             </button>
                         </div>
                     </div>
 
                     <!-- Saved Search Profiles -->
-                    <div class="glass-card" style="margin-top: 1.5rem;">
-                        <h3 style="font-size: 1rem; font-weight:600; margin-bottom:1rem; letter-spacing:0.03em;">SAVED PROFILES</h3>
+                    <div class="glass-card">
+                        <h3
+                            style="font-size:0.75rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-secondary); margin-bottom:1rem;">
+                            SAVED PROFILES</h3>
                         <div class="form-group">
                             <label for="profile-selector">Select Profile</label>
-                            <select id="profile-selector" class="form-control" style="background: rgba(255, 255, 255, 0.05); color: var(--text-primary); border: 1px solid rgba(255, 255, 255, 0.1);">
+                            <select id="profile-selector" class="form-control">
                                 <option value="">-- Select a Profile --</option>
                             </select>
                         </div>
-                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                            <button class="btn btn-primary" id="run-profile-btn" style="flex: 1;" disabled>Run Profile</button>
-                            <button class="btn btn-danger" id="delete-profile-btn" style="padding: 0 0.75rem;" title="Delete Profile" disabled>🗑️</button>
+                        <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                            <button class="btn btn-primary" id="run-profile-btn" style="flex:1;" disabled
+                                onclick="runSearchProfile()">Run</button>
+                            <button class="btn btn-danger" id="delete-profile-btn" style="padding:0 0.75rem;"
+                                title="Delete Profile" disabled onclick="deleteSearchProfile()">🗑️</button>
                         </div>
-                        <hr style="border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 1rem 0;">
+                        <hr style="border:0; border-top:1px solid var(--border); margin:1rem 0;">
                         <div class="form-group">
-                            <label for="new-profile-name">Save Current Search As Profile</label>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <input type="text" id="new-profile-name" class="form-control" placeholder="Profile Name" style="min-width: 0;">
-                                <button class="btn btn-success" id="save-profile-btn" style="flex-shrink: 0;">Save</button>
+                            <label for="new-profile-name">Save As Profile</label>
+                            <div style="display:flex; gap:0.5rem;">
+                                <input type="text" id="new-profile-name" class="form-control" placeholder="Profile Name"
+                                    style="min-width:0;">
+                                <button class="btn btn-success" onclick="saveSearchProfile()"
+                                    style="flex-shrink:0;">Save</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- API Key -->
+                    <!-- API Key + Resume Tabs -->
                     <div class="glass-card">
                         <div class="tab-headers">
-                            <button class="tab-btn active" onclick="switchTab('tab-api', event)">API Keys</button>
-                            <button class="tab-btn" onclick="switchTab('tab-resume', event)">Resume</button>
+                            <button class="tab-btn active" onclick="switchSidebarTab('tab-api', this)">API Key</button>
+                            <button class="tab-btn" onclick="switchSidebarTab('tab-resume', this)">Resume</button>
                         </div>
                         <div id="tab-api" class="tab-panel active">
-                            <div class="form-group">
+                            <div class="form-group" style="margin-top:0.5rem;">
                                 <label for="gemini-key">Gemini API Key</label>
-                                <input type="password" id="gemini-key" class="form-control" placeholder="AI-Powered Matching & Form-Solving">
-                                <span style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; display: block;">Keys are stored locally in your browser.</span>
+                                <input type="password" id="gemini-key" class="form-control"
+                                    placeholder="AI-Powered Matching &amp; Form-Solving">
+                                <span
+                                    style="font-size:0.72rem; color:var(--text-muted); margin-top:0.3rem; display:block;">Stored
+                                    only in your browser session.</span>
                             </div>
                         </div>
                         <div id="tab-resume" class="tab-panel">
-                            <div id="upload-zone" class="upload-zone">
+                            <div id="upload-zone" class="upload-zone" style="margin-top:0.5rem;"
+                                onclick="document.getElementById('resume-file-input').click()">
                                 <div class="upload-icon">📄</div>
-                                <div class="upload-text">Drop your resume PDF here or click to browse</div>
+                                <div class="upload-text">Drop resume PDF or click to browse</div>
                                 <div class="upload-hint">PDF only, max 10MB</div>
                             </div>
-                            <input type="file" id="resume-file-input" accept=".pdf" style="display: none;">
-                            <div class="form-group" style="margin-top: 1rem;">
+                            <input type="file" id="resume-file-input" accept=".pdf" style="display:none;">
+                            <div class="form-group" style="margin-top:0.75rem;">
                                 <label for="resume-content">Extracted Text Preview</label>
-                                <textarea id="resume-content" class="form-control" style="height: 100px; font-family: var(--font-mono); font-size: 0.7rem;" readonly>Upload a resume to see extracted text...</textarea>
+                                <textarea id="resume-content" class="form-control"
+                                    style="height:80px; font-family:var(--font-mono); font-size:0.68rem;"
+                                    readonly>Upload a resume to preview extracted text...</textarea>
                             </div>
+                            <div id="resume-list" style="margin-top:0.5rem;"></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Main Panel -->
+                <!-- Main Content -->
                 <div class="main-content">
                     <!-- Job List -->
-                    <div class="glass-card" style="display: flex; flex-direction: column;">
+                    <div class="glass-card">
                         <div class="section-header">
                             <h2>MATCHING JOBS</h2>
                             <span class="badge" id="job-count-badge">0 Found</span>
                         </div>
                         <div class="job-list" id="jobs-container">
                             <div class="placeholder-text">
-                                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                                <span>Enter keywords and search to find matching jobs.</span>
+                                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"
+                                    viewBox="0 0 24 24" style="color:var(--text-muted);">
+                                    <path
+                                        d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                                    </path>
+                                </svg>
+                                <span>Enter keywords and click Search to find matching jobs.</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Job Detail -->
-                    <div class="glass-card" style="display: flex; flex-direction: column;">
+                    <!-- Job Detail & Analytics -->
+                    <div class="glass-card">
                         <div class="section-header">
-                            <h2>JOB ANALYTICS & INSIGHTS</h2>
+                            <h2>JOB ANALYTICS &amp; INSIGHTS</h2>
                         </div>
                         <div class="detail-pane" id="detail-container">
-                            <div class="placeholder-text" style="height: 100%; display: flex; align-items: center; justify-content: center;">
-                                <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--text-muted);"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                            <div class="placeholder-text"
+                                style="height:200px; display:flex; align-items:center; justify-content:center;">
                                 <span>Select a job from the list to view match analysis.</span>
                             </div>
                         </div>
@@ -170,16 +228,62 @@
             </div>
         </div>
 
-        <!-- ════════════ PAGE: History ════════════ -->
+        <!-- ══ PAGE: History ════════════════════════════════════ -->
         <div id="page-history" class="page-content">
             <div id="stats-grid" class="stats-grid">
-                <div class="stat-card"><div class="stat-value">—</div><div class="stat-label">Loading...</div></div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">—</div>
+                    <div class="stat-label">Total Tracked</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-applied" style="color:var(--success)">—</div>
+                    <div class="stat-label">Applied Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-today" style="color:var(--accent)">—</div>
+                    <div class="stat-label">Applied Today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-week" style="color:var(--info)">—</div>
+                    <div class="stat-label">This Week</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-month">—</div>
+                    <div class="stat-label">This Month</div>
+                </div>
             </div>
+
+            <!-- Filter Bar -->
+            <div class="glass-card" style="margin-bottom:1rem;">
+                <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                    <select id="history-status-filter" class="form-control" style="width:auto; min-width:140px;"
+                        onchange="loadHistory()">
+                        <option value="">All Statuses</option>
+                        <option value="applied">Applied</option>
+                        <option value="review">In Review</option>
+                        <option value="applying">Applying</option>
+                        <option value="scored">Scored</option>
+                        <option value="discovered">Discovered</option>
+                        <option value="failed">Failed</option>
+                        <option value="skipped">Skipped</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="loadHistory()" style="padding:0.5rem 0.875rem;">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"
+                            viewBox="0 0 24 24">
+                            <path
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                            </path>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
             <div class="glass-card">
                 <div class="section-header">
                     <h2>APPLICATION HISTORY</h2>
                 </div>
-                <div style="overflow-x: auto;">
+                <div style="overflow-x:auto;">
                     <table class="history-table">
                         <thead>
                             <tr>
@@ -192,36 +296,40 @@
                             </tr>
                         </thead>
                         <tbody id="history-table-body">
-                            <tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">Loading history...</td></tr>
+                            <tr>
+                                <td colspan="6" style="text-align:center; padding:2rem; color:var(--text-muted);">
+                                    Loading history...</td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- ════════════ PAGE: Settings ════════════ -->
+        <!-- ══ PAGE: Settings ═══════════════════════════════════ -->
         <div id="page-settings" class="page-content">
-            <div class="glass-card" style="max-width: 700px;">
-                <h3 style="font-size: 1.1rem; font-weight:600; margin-bottom:1.25rem;">USER PROFILE</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem;">
-                    This information is used to auto-fill application forms. Saved locally in <code>config.local.yaml</code>.
+            <div class="glass-card" style="max-width:720px;">
+                <h3 style="font-size:1.1rem; font-weight:700; margin-bottom:0.5rem;">USER PROFILE</h3>
+                <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1.5rem;">Used to auto-fill
+                    application forms. Saved in <code
+                        style="background:rgba(255,255,255,0.06); padding:0.1rem 0.3rem; border-radius:3px;">config.local.yaml</code>.
                 </p>
                 <div class="config-grid">
                     <div class="form-group">
                         <label for="cfg-first-name">First Name</label>
-                        <input type="text" id="cfg-first-name" class="form-control" placeholder="e.g. John">
+                        <input type="text" id="cfg-first-name" class="form-control" placeholder="e.g. Mohammed">
                     </div>
                     <div class="form-group">
                         <label for="cfg-last-name">Last Name</label>
-                        <input type="text" id="cfg-last-name" class="form-control" placeholder="e.g. Doe">
+                        <input type="text" id="cfg-last-name" class="form-control" placeholder="e.g. Saifulhuq">
                     </div>
                     <div class="form-group">
                         <label for="cfg-email">Email</label>
-                        <input type="email" id="cfg-email" class="form-control" placeholder="e.g. john@example.com">
+                        <input type="email" id="cfg-email" class="form-control" placeholder="e.g. you@example.com">
                     </div>
                     <div class="form-group">
                         <label for="cfg-phone">Phone</label>
-                        <input type="tel" id="cfg-phone" class="form-control" placeholder="e.g. 9025281608">
+                        <input type="tel" id="cfg-phone" class="form-control" placeholder="e.g. +91 9000000000">
                     </div>
                     <div class="form-group">
                         <label for="cfg-city">City</label>
@@ -231,102 +339,175 @@
                         <label for="cfg-experience">Years of Experience</label>
                         <input type="text" id="cfg-experience" class="form-control" placeholder="e.g. 2">
                     </div>
+                    <div class="form-group">
+                        <label for="cfg-notice">Notice Period</label>
+                        <input type="text" id="cfg-notice" class="form-control" placeholder="e.g. Immediate / 30 days">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-current-ctc">Current CTC</label>
+                        <input type="text" id="cfg-current-ctc" class="form-control" placeholder="e.g. 6 LPA">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-expected-ctc">Expected CTC</label>
+                        <input type="text" id="cfg-expected-ctc" class="form-control" placeholder="e.g. 9 LPA">
+                    </div>
+                    <div class="form-group">
+                        <label for="cfg-linkedin">LinkedIn URL</label>
+                        <input type="url" id="cfg-linkedin" class="form-control"
+                            placeholder="https://linkedin.com/in/...">
+                    </div>
                 </div>
-                <div class="form-group" style="margin-top: 0.75rem;">
-                    <label for="cfg-work-auth">Work Authorization</label>
-                    <input type="text" id="cfg-work-auth" class="form-control" placeholder="e.g. Authorized to work" value="Authorized to work">
+                <div class="form-group" style="margin-top:0.5rem;">
+                    <label for="cfg-github">GitHub / Portfolio URL</label>
+                    <input type="url" id="cfg-github" class="form-control" placeholder="https://github.com/...">
                 </div>
-                <div style="margin-top: 1.5rem;">
-                    <button class="btn btn-primary" id="save-config-btn">Save Profile</button>
+                <div style="margin-top:1.25rem; display:flex; gap:0.75rem;">
+                    <button class="btn btn-primary" id="save-config-btn" onclick="saveConfig()">Save Profile</button>
+                    <span id="save-config-status"
+                        style="font-size:0.82rem; color:var(--success); align-self:center;"></span>
                 </div>
             </div>
- 
-            <!-- Cache Settings -->
-            <div class="glass-card" style="max-width: 700px; margin-top: 1.5rem;">
-                <h3 style="font-size: 1.1rem; font-weight:600; margin-bottom:1.25rem;">LLM ANSWER CACHE</h3>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                    Pre-filled answers to screening questions are cached to avoid repeated LLM calls and reduce API costs.
-                </p>
-                <div class="config-grid" style="grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
-                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--primary);" id="cache-entries-count">0</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Total Entries</div>
+
+            <!-- LLM Settings -->
+            <div class="glass-card" style="max-width:720px; margin-top:1.5rem;">
+                <h3 style="font-size:1.1rem; font-weight:700; margin-bottom:0.5rem;">LLM PROVIDER</h3>
+                <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1.25rem;">Gemini → Ollama →
+                    Heuristic fallback chain.</p>
+                <div class="form-group">
+                    <label for="cfg-llm-provider">Provider</label>
+                    <select id="cfg-llm-provider" class="form-control" style="max-width:240px;">
+                        <option value="gemini">Gemini 2.5 Flash</option>
+                        <option value="ollama">Ollama (Local)</option>
+                        <option value="heuristic">Heuristic (No LLM)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="cfg-gemini-key">Gemini API Key</label>
+                    <input type="password" id="cfg-gemini-key" class="form-control" style="max-width:480px;"
+                        placeholder="Paste your Gemini API key here">
+                </div>
+                <div style="margin-top:1rem; display:flex; gap:0.75rem;">
+                    <button class="btn btn-primary" onclick="saveLLMConfig()">Save LLM Config</button>
+                    <span id="llm-save-status"
+                        style="font-size:0.82rem; color:var(--success); align-self:center;"></span>
+                </div>
+            </div>
+
+            <!-- Cache Stats -->
+            <div class="glass-card" style="max-width:720px; margin-top:1.5rem;">
+                <h3 style="font-size:1.1rem; font-weight:700; margin-bottom:0.5rem;">ANSWER CACHE</h3>
+                <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">Screening question
+                    answers are cached to avoid repeated API calls.</p>
+                <div class="config-grid"
+                    style="grid-template-columns:repeat(3,1fr); gap:0.75rem; margin-bottom:1.25rem;">
+                    <div
+                        style="background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; text-align:center; border:1px solid var(--border);">
+                        <div style="font-size:1.5rem; font-weight:800; color:var(--accent);" id="cache-entries-count">0
+                        </div>
+                        <div
+                            style="font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem; text-transform:uppercase; letter-spacing:0.08em;">
+                            Entries</div>
                     </div>
-                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--success);" id="cache-hits-count">0</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Cache Hits</div>
+                    <div
+                        style="background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; text-align:center; border:1px solid var(--border);">
+                        <div style="font-size:1.5rem; font-weight:800; color:var(--success);" id="cache-hits-count">0
+                        </div>
+                        <div
+                            style="font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem; text-transform:uppercase; letter-spacing:0.08em;">
+                            Cache Hits</div>
                     </div>
-                    <div style="background: rgba(255,255,255,0.02); padding: 1rem; border-radius: 0.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.05);">
-                        <div style="font-size: 1.5rem; font-weight: 700; color: var(--warning);" id="cache-hit-rate">0%</div>
-                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Hit Rate</div>
+                    <div
+                        style="background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; text-align:center; border:1px solid var(--border);">
+                        <div style="font-size:1.5rem; font-weight:800; color:var(--warning);" id="cache-hit-rate">0%
+                        </div>
+                        <div
+                            style="font-size:0.7rem; color:var(--text-muted); margin-top:0.2rem; text-transform:uppercase; letter-spacing:0.08em;">
+                            Hit Rate</div>
                     </div>
                 </div>
-                <div style="display: flex; gap: 1rem;">
-                    <button class="btn btn-secondary" id="refresh-cache-btn">Refresh Stats</button>
-                    <button class="btn btn-danger" id="clear-cache-btn">Clear Cache</button>
+                <div style="display:flex; gap:0.75rem;">
+                    <button class="btn btn-secondary" onclick="refreshCacheStats()">Refresh Stats</button>
+                    <button class="btn btn-danger" onclick="clearCache()">Clear Cache</button>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Apply Modal -->
+    </div><!-- end .container -->
+
+    <!-- ══ APPLY CONSOLE MODAL ══════════════════════════════════ -->
     <div class="modal-overlay" id="applier-modal">
         <div class="modal-card">
             <div class="modal-header">
                 <span class="modal-title">APPLICATION WORKFLOW CONSOLE</span>
-                <span class="badge badge-success" id="console-status-badge">Launching...</span>
+                <span class="badge badge-accent" id="console-status-badge">Initializing...</span>
             </div>
             <div class="modal-body">
                 <div class="terminal-panel" id="terminal-log">
-                    <div class="log-entry system">[SYSTEM] Console session initialized. Waiting for steps...</div>
+                    <div class="log-entry system">[SYSTEM] Console ready. Awaiting task...</div>
                 </div>
+
+                <!-- HITL Question Box -->
                 <div class="question-box" id="question-overlay">
-                    <div class="question-label" id="question-text"></div>
+                    <div class="question-label" id="question-text">Waiting for question...</div>
                     <div class="question-options" id="question-options-container"></div>
-                    <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+                    <textarea class="question-answer-input" id="question-answer" rows="2"
+                        placeholder="Enter your answer here (or select an option above)..."></textarea>
+                    <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
                         <button class="btn btn-secondary" onclick="skipQuestion()">Skip / Default</button>
                         <button class="btn btn-primary" onclick="submitAnswer()">Submit Answer</button>
                     </div>
                 </div>
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.4;">
-                    <strong>Note:</strong> A browser window has opened. You can intervene at any time for CAPTCHAs, MFA, or manual corrections.
+
+                <!-- Review Prompt -->
+                <div class="review-prompt" id="review-prompt">
+                    <strong>✅ Application Ready for Submission</strong>
+                    <p>The form has been filled. Please review in the browser window, then click <strong>Confirm &amp;
+                            Submit</strong>.</p>
+                </div>
+
+                <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.4;">
+                    <strong style="color:var(--text-secondary);">Note:</strong> A browser window has been opened. You
+                    may intervene at any time for CAPTCHAs, MFA, or manual corrections.
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeConsole()">Close / Cancel</button>
-                <button class="btn btn-success" id="confirm-submit-btn" disabled>Confirm & Submit Application</button>
+                <button class="btn btn-success" id="confirm-submit-btn" disabled onclick="confirmSubmit()">
+                    <div class="spinner" id="submit-spinner" style="display:none;"></div>
+                    Confirm &amp; Submit Application
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Scripts -->
-    <script src="/templates/js/websocket.js?v=2"></script>
-    <script src="/templates/js/search.js?v=2"></script>
-    <script src="/templates/js/apply.js?v=2"></script>
-    <script src="/templates/js/resume.js?v=2"></script>
-    <script src="/templates/js/config.js?v=2"></script>
-    <script src="/templates/js/history.js?v=2"></script>
+    <!-- ══ SCRIPTS ══════════════════════════════════════════════ -->
+    <script src="/templates/js/websocket.js"></script>
+    <script src="/templates/js/search.js"></script>
+    <script src="/templates/js/apply.js"></script>
+    <script src="/templates/js/resume.js"></script>
+    <script src="/templates/js/config.js"></script>
+    <script src="/templates/js/history.js"></script>
     <script>
-        // Page tab switching
-        function switchPage(pageId) {
+        // ── Page Tab Switching ─────────────────────────────────
+        function switchPage(pageId, btn) {
             document.querySelectorAll('.page-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
             document.getElementById(pageId).classList.add('active');
-            event.target.classList.add('active');
-            // Load data for specific pages
+            if (btn) btn.classList.add('active');
             if (pageId === 'page-history') loadHistory();
+            if (pageId === 'page-settings') { loadConfig(); refreshCacheStats(); }
         }
 
-        // Sidebar tab switching
-        function switchTab(tabId, evt) {
-            const parent = evt.target.closest('.glass-card');
-            parent.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            parent.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-            evt.target.classList.add('active');
+        function switchSidebarTab(tabId, btn) {
+            const parent = btn.closest('.glass-card');
+            parent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            parent.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
             document.getElementById(tabId).classList.add('active');
+            if (tabId === 'tab-resume') loadResumeList();
         }
 
-        // Initialize everything
+        // ── App Initialization ─────────────────────────────────
         window.addEventListener('load', () => {
             connectWS();
             initSearch();
@@ -334,11 +515,22 @@
             initResume();
             initConfig();
 
-            // Wire up WS log routing
+            // Route WS log messages to terminal
             onWsMessage(msg => {
-                if (msg.type === 'log') addLog(msg.message, msg.level || 'info');
+                const isLegacy = msg.type === 'log';
+                const isNew = msg.event === 'log';
+                if (isLegacy || isNew) {
+                    const text = isLegacy ? msg.message : msg.data?.message;
+                    const level = isLegacy ? (msg.level || 'info') : (msg.data?.level || 'info');
+                    if (text) addLog(text, level);
+                }
+                // Circuit breaker warning
+                if (msg.event === 'circuit_open' || (msg.type === 'log' && msg.message?.includes('Circuit breaker'))) {
+                    document.getElementById('circuit-banner').classList.add('visible');
+                }
             });
         });
     </script>
 </body>
+
 </html>

@@ -127,11 +127,14 @@ class AnswerCache:
     def stats(self) -> Dict[str, Any]:
         """Return cache statistics."""
         total_lookups = self._hits + self._misses
+        hit_rate = round(self._hits / total_lookups, 3) if total_lookups > 0 else 0
         return {
             "total_entries": len(self._cache),
-            "hits": self._hits,
-            "misses": self._misses,
-            "hit_rate": round(self._hits / total_lookups * 100, 1) if total_lookups > 0 else 0,
+            "total_hits": self._hits,
+            "total_misses": self._misses,
+            "hits": self._hits,           # legacy
+            "misses": self._misses,       # legacy
+            "hit_rate": hit_rate,
             "total_lookups": total_lookups,
         }
 

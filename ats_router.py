@@ -1,109 +1,125 @@
 """
-ATS Router for Apply-Nav.
-
-Detects ATS type from external apply URLs and dispatches
-to the appropriate handler for semi-automated form filling.
+ats_router.py — URL pattern matching + DOM probe to select correct handler.
 """
 
 import re
 import logging
 import urllib.parse
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
-
-
-def clean_apply_url(url: str) -> str:
-    """Extract and decode the target URL from LinkedIn safety warning redirect links."""
-    if not url:
-        return ""
-    if "linkedin.com/safety/go" in url or "linkedin.com/safety/go?" in url:
-        try:
-            parsed = urllib.parse.urlparse(url)
-            params = urllib.parse.parse_qs(parsed.query)
-            if "url" in params:
-                decoded_url = params["url"][0]
-                logger.info("Decoded safety redirect URL: %s -> %s", url[:50], decoded_url[:100])
-                return decoded_url
-        except Exception as e:
-            logger.warning("Failed to parse safety warning URL %s: %s", url, e)
-    return url
+from typing import Optional
 
 logger = logging.getLogger("apply_nav.ats_router")
 
 
-@dataclass
-class ApplyResult:
-    """Result of an application attempt."""
-    status: str          # "applied" | "failed" | "manual_needed" | "captcha" | "cancelled"
-    ats_type: str        # "easy_apply" | "workday" | "greenhouse" | "lever" | "unknown"
-    message: str         # Human-readable status message
-    error: str = ""      # Error details if failed
+# ─── Platform URL Patterns ────────────────────────────────────
 
-
-# URL patterns for ATS detection
-ATS_PATTERNS: Dict[str, list] = {
-    "workday": [
-        r"myworkdayjobs\.com",
-        r"\.wd\d+\.myworkdayjobs",
-        r"workday\.com/.*job",
-    ],
-    "greenhouse": [
-        r"boards\.greenhouse\.io",
-        r"greenhouse\.io/.*job",
-        r"job_app\?.*token=",
-    ],
-    "lever": [
-        r"jobs\.lever\.co",
-        r"lever\.co/.*apply",
-    ],
-    "icims": [
-        r"\.icims\.com",
-        r"icims\.com/jobs",
-    ],
-    "taleo": [
-        r"taleo\.net",
-        r"oracle\.com/.*careers",
-    ],
-    "smartrecruiters": [
-        r"jobs\.smartrecruiters\.com",
-    ],
-    "bamboohr": [
-        r".*\.bamboohr\.com/careers",
-    ],
+PLATFORM_PATTERNS = {
+    "easy_apply":      [],  # detected by DOM probe, not URL
+    "workday":         ["myworkdayjobs.com", "workday.com", "wd1.myworkdayjobs", "wd3.myworkdayjobs", "wd5.myworkdayjobs"],
+    "greenhouse":      ["greenhouse.io", "boards.greenhouse.io"],
+    "lever":           ["lever.co", "jobs.lever.co"],
+    "icims":           ["icims.com"],
+    "taleo":           ["taleo.net"],
+    "smartrecruiters": ["smartrecruiters.com"],
+    "bamboohr":        ["bamboohr.com"],
 }
 
 
-def detect_ats_type(url: str) -> str:
-    """Detect the ATS type from an external apply URL.
-    
-    Args:
-        url: The external application URL
-        
-    Returns:
-        ATS type string: workday | greenhouse | lever | icims | taleo | 
-                         smartrecruiters | bamboohr | unknown
-    """
+# ─── ApplyResult (legacy shape) ───────────────────────────────
+
+@dataclass
+class ApplyResult:
+    """Legacy result shape (used by job_applier_dashboard.py)."""
+    status: str          # "applied" | "failed" | "review" | "manual_needed" | "cancelled" | "interrupted"
+    ats_type: str = "unknown"
+    message: str = ""
+    error: str = ""
+
+
+# ─── URL Utilities ────────────────────────────────────────────
+
+def clean_apply_url(url: str) -> str:
+    """Decode LinkedIn safety redirect URLs to the real target."""
     if not url:
-        return "unknown"
+        return ""
+    if "linkedin.com/safety/go" in url:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query)
+            if "url" in params:
+                decoded = params["url"][0]
+                logger.info("Decoded safety URL: %s → %s", url[:50], decoded[:80])
+                return decoded
+        except Exception as e:
+            logger.warning("Failed to decode safety URL %s: %s", url, e)
+    return url
 
-    cleaned_url = clean_apply_url(url)
-    url_lower = cleaned_url.lower()
 
-    for ats_type, patterns in ATS_PATTERNS.items():
-        for pattern in patterns:
-            if re.search(pattern, url_lower):
-                logger.info("Detected ATS type '%s' from URL: %s", ats_type, cleaned_url[:100])
-                return ats_type
+# ─── ATSRouter class ─────────────────────────────────────────
 
-    logger.info("Unknown ATS type for URL: %s", url[:100])
-    return "unknown"
+class ATSRouter:
+    """Detects the ATS platform and returns the correct handler."""
+
+    def detect_platform(self, apply_url: str, page=None) -> str:
+        """
+        URL matching first.
+        If apply_url is empty or is a LinkedIn internal apply URL, return "easy_apply".
+        """
+        if not apply_url:
+            return "easy_apply"
+
+        url_lower = apply_url.lower()
+
+        # LinkedIn internal = Easy Apply
+        if any(x in url_lower for x in ["/apply/", "linkedin.com/jobs", "opensdui"]):
+            return "easy_apply"
+
+        # Match against platform patterns
+        for platform, patterns in PLATFORM_PATTERNS.items():
+            for pattern in patterns:
+                if pattern in url_lower:
+                    logger.info("Detected platform '%s' from URL: %s", platform, apply_url[:80])
+                    return platform
+
+        return "hitl_fallback"
+
+    def get_handler(self, platform: str):
+        """Returns the correct handler instance for the given platform."""
+        from ats_handlers.easy_apply import EasyApplyHandler
+        from ats_handlers.workday import WorkdayHandler
+        from ats_handlers.greenhouse import GreenhouseHandler
+        from ats_handlers.hitl_fallback import HITLFallbackHandler
+
+        handler_map = {
+            "easy_apply": EasyApplyHandler,
+            "workday": WorkdayHandler,
+            "greenhouse": GreenhouseHandler,
+            "lever": HITLFallbackHandler,
+            "icims": HITLFallbackHandler,
+            "taleo": HITLFallbackHandler,
+            "smartrecruiters": HITLFallbackHandler,
+            "bamboohr": HITLFallbackHandler,
+            "hitl_fallback": HITLFallbackHandler,
+            "unknown": HITLFallbackHandler,
+        }
+
+        cls = handler_map.get(platform, HITLFallbackHandler)
+        logger.info("Using handler: %s for platform: %s", cls.__name__, platform)
+        return cls()
+
+
+# ─── Module-level helpers (legacy API) ────────────────────────
+
+_router = ATSRouter()
+
+
+def detect_ats_type(url: str) -> str:
+    """Legacy function: detect ATS type from URL."""
+    return _router.detect_platform(url)
 
 
 def get_handler_for_ats(ats_type: str):
-    """Get the appropriate handler class for an ATS type.
-    
-    Returns the handler class (not instantiated) or None for unsupported types.
-    """
+    """Legacy function: returns handler class for the given ATS type."""
     from ats_handlers.easy_apply import EasyApplyHandler
     from ats_handlers.workday import WorkdayHandler
     from ats_handlers.greenhouse import GreenhouseHandler
@@ -113,7 +129,6 @@ def get_handler_for_ats(ats_type: str):
         "easy_apply": EasyApplyHandler,
         "workday": WorkdayHandler,
         "greenhouse": GreenhouseHandler,
-        # lever, icims, taleo, smartrecruiters, bamboohr all use HITL for now
         "lever": HITLFallbackHandler,
         "icims": HITLFallbackHandler,
         "taleo": HITLFallbackHandler,
@@ -121,7 +136,4 @@ def get_handler_for_ats(ats_type: str):
         "bamboohr": HITLFallbackHandler,
         "unknown": HITLFallbackHandler,
     }
-
-    handler_class = handler_map.get(ats_type, HITLFallbackHandler)
-    logger.info("Using handler: %s for ATS type: %s", handler_class.__name__, ats_type)
-    return handler_class
+    return handler_map.get(ats_type, HITLFallbackHandler)

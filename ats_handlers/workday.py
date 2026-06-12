@@ -1,299 +1,240 @@
 """
-Workday ATS handler for Apply-Nav.
-
-Semi-automated form filling for Workday career portals.
-Workday uses shadow DOM components, so this handler uses a
-combination of standard DOM traversal and JavaScript evaluation
-to interact with form elements.
-
-Strategy:
-1. Navigate to the Workday job page
-2. Detect common form patterns (shadow DOM traversal)
-3. Auto-fill: name, email, phone, resume upload
-4. Pause at: account creation, CAPTCHAs, complex multi-page flows
-5. Use LLM to map unusual field labels to resume data
-6. Fall back to HITL if DOM is unrecognized
+ats_handlers/workday.py — Workday iframe + shadow DOM handler.
 """
 
 import asyncio
+import random
 import logging
-from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
-from ats_handlers.base import BaseATSHandler, BroadcastFn
-from ats_router import ApplyResult
+from ats_handlers.base import BaseATSHandler, ApplyResult, ApplyStatus
 
 logger = logging.getLogger("apply_nav.ats.workday")
 
 
 class WorkdayHandler(BaseATSHandler):
-    """Semi-automated Workday application handler."""
+    """Handles Workday ATS form automation."""
 
     ats_type = "workday"
 
-    async def can_handle(self, page: Any) -> bool:
-        """Check if the page is a Workday application form."""
-        url = page.url.lower()
-        if "myworkdayjobs.com" in url or "workday.com" in url:
-            return True
+    async def fill_form(self, page, job_info: dict) -> ApplyResult:
+        """Navigate to Workday apply and fill form pages."""
 
-        # Check for Workday-specific DOM markers
-        has_workday = await page.evaluate("""() => {
-            return !!(
-                document.querySelector('[data-automation-id]') ||
-                document.querySelector('[data-uxi-widget-type]') ||
-                document.querySelector('.css-1q2dra3') ||
-                document.title.toLowerCase().includes('workday')
-            );
-        }""")
-        return has_workday
+        # ── 1. Find and click Apply button ────────────────────
+        apply_locator = page.locator(
+            "[data-automation-id='applyButton'], [data-automation-id='apply-now-button']"
+        )
+        try:
+            await apply_locator.wait_for(state="visible", timeout=10000)
+        except Exception:
+            # Fallback: ARIA role
+            apply_locator = page.get_by_role("button", name="Apply")
+            if await apply_locator.count() == 0:
+                return ApplyResult(ApplyStatus.FAILED, "No Workday apply button found")
 
-    async def fill_form(
-        self,
-        page: Any,
-        user_data: Dict[str, str],
-        resume_pdf_path: Path,
-        resume_text: str,
-        llm: Any,
-        broadcast: BroadcastFn,
-        question_callback: Optional[Callable] = None,
-    ) -> ApplyResult:
-        """Semi-automated Workday form filling.
-        
-        Workday forms are highly variable per employer. This handler:
-        1. Detects the "Apply" button and clicks it
-        2. Handles "Sign In" / "Create Account" gates
-        3. Fills identifiable fields (name, email, phone)
-        4. Uploads resume
-        5. Pauses for HITL on unknown fields
-        """
-        await broadcast("Workday application detected. Starting semi-automated flow...", "info")
-        await asyncio.sleep(2)
+        await self._emit("Found Workday apply button — clicking...", "info")
+        await self._mouse_jitter(page)
+        await self._random_delay(1.5, 3.0)
+        await apply_locator.first.click()
+        await asyncio.sleep(3.0)
 
-        # Step 1: Find and click the Apply button
-        apply_clicked = await self._click_apply_button(page)
-        if not apply_clicked:
-            await broadcast("Could not find Workday Apply button. Manual navigation may be needed.", "warning")
+        # ── 2. Check for login wall ────────────────────────────
+        if "login" in page.url.lower() or "signin" in page.url.lower():
+            is_login_wall = await page.locator("[data-automation-id='signIn']").count() > 0
+            if is_login_wall:
+                await self._emit("Workday login required — please sign in manually.", "error")
+                return ApplyResult(ApplyStatus.FAILED, "Workday login required")
 
-        await asyncio.sleep(3)
+        # ── 3. Check for iframe (some portals wrap in iframe) ──
+        iframe_locator = page.frame_locator("iframe[src*='workday']")
+        try:
+            iframe_count = await page.locator("iframe[src*='workday']").count()
+            use_iframe = iframe_count > 0
+        except Exception:
+            use_iframe = False
 
-        # Step 2: Check for Sign In / Create Account gates
-        needs_auth = await self._check_auth_gate(page)
-        if needs_auth:
-            await broadcast(
-                "⚠️ Workday requires account sign-in or creation. "
-                "Please sign in manually in the browser, then the automation will continue.",
-                "warning"
-            )
-            # Wait for user to handle auth (up to 5 minutes)
-            for _ in range(60):
-                await asyncio.sleep(5)
-                still_auth = await self._check_auth_gate(page)
-                if not still_auth:
-                    await broadcast("Auth gate cleared! Continuing automation...", "success")
-                    break
+        ctx = iframe_locator if use_iframe else page
+
+        # ── 4. Multi-page form loop (up to 20 iterations) ─────
+        for step in range(1, 21):
+            await asyncio.sleep(2.0)
+            await self._emit(f"Workday step {step}...", "info")
+
+            # Detect current step label
+            step_label = ""
+            try:
+                step_el = page.locator("[data-automation-id='currentStep']")
+                if await step_el.count() > 0:
+                    step_label = await step_el.first.inner_text()
+                    await self._emit(f"  Step: {step_label}", "info")
+            except Exception:
+                pass
+
+            # Fill text inputs
+            n_filled = await self._fill_workday_inputs(page, ctx, job_info)
+            await self._emit(f"  Filled {n_filled} text inputs", "info")
+
+            # Upload resume
+            resume_path = None
+            if self.resume:
+                try:
+                    from resume_manager import get_resume_pdf_path
+                    resume_path = get_resume_pdf_path()
+                except Exception:
+                    pass
+            if resume_path:
+                await self._upload_resume(page, resume_path, self.broadcast)
+
+            # Handle select/dropdowns
+            await self._fill_workday_selects(page, ctx, job_info)
+
+            await asyncio.sleep(1.0)
+
+            # Check for Next button
+            next_btn = page.locator("[data-automation-id='bottom-navigation-next-btn']")
+            if await next_btn.count() == 0:
+                next_btn = page.get_by_role("button", name="Next")
+
+            review_btn = page.locator("[data-automation-id='bottom-navigation-review-btn']")
+            submit_btn = page.locator("[data-automation-id='bottom-navigation-finish-btn']")
+
+            if await submit_btn.count() > 0 or await review_btn.count() > 0:
+                await self._emit("✋ Workday review/submit step — awaiting user confirmation.", "warning")
+                return ApplyResult(ApplyStatus.PENDING_REVIEW, "Workday form complete — awaiting user confirmation")
+
+            if await next_btn.count() > 0 and await next_btn.first.is_visible():
+                await self._mouse_jitter(page)
+                await self._random_delay(1.5, 3.0)
+                await next_btn.first.click()
             else:
-                return ApplyResult(
-                    status="manual_needed",
-                    ats_type="workday",
-                    message="Workday authentication gate was not resolved within 5 minutes.",
-                )
+                await self._emit("No Workday navigation button found — opening for manual review.", "warning")
+                return ApplyResult(ApplyStatus.PENDING_REVIEW, "Workday: no next button found — manual review required")
 
-        await asyncio.sleep(2)
+        return ApplyResult(ApplyStatus.PENDING_REVIEW, "Workday: max steps reached — manual review")
 
-        # Step 3: Extract and fill form fields
-        await broadcast("Scanning Workday form fields...", "info")
+    async def _fill_workday_inputs(self, page, ctx, job_info: dict) -> int:
+        """Fill text inputs on the current Workday step."""
+        filled = 0
+        user_data = job_info.get("user_data", {})
+        structured = {}
+        if self.resume:
+            try:
+                structured = self.resume.get_structured()
+            except Exception:
+                pass
+
+        # Find Workday text inputs by data-automation-id pattern
+        try:
+            inputs = page.locator("[data-automation-id$='-input'] input, [data-automation-id$='-formField'] input")
+            count = await inputs.count()
+
+            for i in range(count):
+                el = inputs.nth(i)
+                try:
+                    if not await el.is_visible():
+                        continue
+                    # Find label
+                    label = ""
+                    try:
+                        parent = page.locator("[data-automation-id$='-formField']").nth(i)
+                        label_el = parent.locator("label")
+                        if await label_el.count() > 0:
+                            label = await label_el.first.inner_text()
+                    except Exception:
+                        pass
+
+                    current = await el.input_value()
+                    if current:
+                        continue
+
+                    val = self._match_pii_workday(label, user_data, structured)
+                    if val:
+                        await self._type_humanlike(el, val)
+                        filled += 1
+                        await self._emit(f"✓ {label or 'field'} → {val}", "success")
+                    elif self.llm and label:
+                        try:
+                            structured_data = structured or {}
+                            answer = await self.llm.answer_question(label, [], structured_data)
+                            if answer:
+                                await self._type_humanlike(el, answer)
+                                filled += 1
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug("Workday input fill error: %s", e)
+
+        return filled
+
+    async def _fill_workday_selects(self, page, ctx, job_info: dict) -> None:
+        """Fill select/dropdown fields on Workday."""
+        structured = {}
+        if self.resume:
+            try:
+                structured = self.resume.get_structured()
+            except Exception:
+                pass
+        user_data = job_info.get("user_data", {})
 
         try:
-            fields = await self._extract_workday_fields(page)
+            selects = page.locator("[data-automation-id$='-selectWidget']")
+            count = await selects.count()
+            for i in range(count):
+                sel = selects.nth(i)
+                try:
+                    if not await sel.is_visible():
+                        continue
+                    # Find label text
+                    label = ""
+                    try:
+                        parent = sel.locator("xpath=ancestor::*[@data-automation-id][1]")
+                        label_el = parent.locator("label")
+                        if await label_el.count() > 0:
+                            label = await label_el.first.inner_text()
+                    except Exception:
+                        pass
+
+                    # Get AI answer for the dropdown
+                    if self.llm and label:
+                        try:
+                            answer = await self.llm.answer_question(label, [], structured or {})
+                            if answer:
+                                # Click dropdown and find matching option
+                                await sel.click()
+                                await asyncio.sleep(0.5)
+                                opt = page.get_by_role("option", name=answer)
+                                if await opt.count() > 0:
+                                    await opt.first.click()
+                                else:
+                                    await page.keyboard.press("Escape")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
         except Exception as e:
-            await broadcast(f"⚠️ Failed to scan Workday fields: {e}. Falling back to HITL mode...", "warning")
-            return ApplyResult(
-                status="manual_needed",
-                ats_type="workday",
-                message=f"Workday scan failed: {e}. Fallback to manual fill.",
-            )
+            logger.debug("Workday select fill error: %s", e)
 
-        filled_count = 0
-
-        for field in fields:
-            label = field.get("label", "").lower()
-            field_id = field.get("id", "")
-            field_type = field.get("type", "text")
-
-            # Auto-fill known fields
-            value = self._match_workday_field(label, user_data)
-            if value and field_id:
-                success = await self._fill_workday_field(page, field_id, field_type, value)
-                if success:
-                    await broadcast(f"✓ {field.get('label', 'Field')} → {value}", "success")
-                    filled_count += 1
-                    await asyncio.sleep(0.5)
-                continue
-
-        # Step 4: Resume upload with retry
-        resume_uploaded = False
-        for attempt in range(1, 3):
-            try:
-                resume_uploaded = await self._upload_workday_resume(page, resume_pdf_path)
-                if resume_uploaded:
-                    await broadcast("✓ Resume uploaded to Workday", "success")
-                    break
-            except Exception as re:
-                await broadcast(f"Resume upload attempt {attempt} failed: {re}", "warning")
-                await asyncio.sleep(2)
-
-        await broadcast(
-            f"Auto-filled {filled_count} fields. "
-            f"Please review and complete remaining fields in the browser.",
-            "warning"
-        )
-
-        return ApplyResult(
-            status="manual_needed",
-            ats_type="workday",
-            message=(
-                f"Workday form partially automated: {filled_count} fields auto-filled, "
-                f"resume {'uploaded' if resume_uploaded else 'not uploaded'}. "
-                f"Please complete remaining fields and submit manually."
-            ),
-        )
-
-    # ─── Private Helpers ───
-
-    async def _click_apply_button(self, page: Any) -> bool:
-        """Find and click the Workday Apply button."""
-        selectors = [
-            "a[data-automation-id='jobPostingApplyButton']",
-            "button[data-automation-id='jobPostingApplyButton']",
-            "a:has-text('Apply')",
-            "button:has-text('Apply')",
+    def _match_pii_workday(self, label: str, user_data: dict, structured: dict) -> str:
+        """Match label to user PII data."""
+        ll = label.lower()
+        name_parts = (structured.get("name", "") or "").split()
+        pii = [
+            (["first name", "given name"], name_parts[0] if name_parts else user_data.get("first_name", "")),
+            (["last name", "surname"], name_parts[-1] if len(name_parts) > 1 else user_data.get("last_name", "")),
+            (["email"], user_data.get("email", "") or structured.get("email", "")),
+            (["phone", "mobile"], user_data.get("phone", "") or structured.get("phone", "")),
+            (["city", "location"], user_data.get("city", "")),
         ]
-        for sel in selectors:
-            if await self._safe_click(page, sel):
-                return True
-        return False
-
-    async def _check_auth_gate(self, page: Any) -> bool:
-        """Check if Workday is showing a sign-in or create-account page."""
-        return await page.evaluate("""() => {
-            const text = document.body?.innerText?.toLowerCase() || '';
-            return (
-                text.includes('sign in') ||
-                text.includes('create account') ||
-                text.includes('log in to apply') ||
-                !!document.querySelector('[data-automation-id="signInLink"]') ||
-                !!document.querySelector('[data-automation-id="createAccountLink"]')
-            );
-        }""")
-
-    async def _extract_workday_fields(self, page: Any) -> list:
-        """Extract form fields from a Workday application form."""
-        return await page.evaluate("""() => {
-            const fields = [];
-            
-            // Standard Workday data-automation-id fields
-            document.querySelectorAll('[data-automation-id]').forEach(el => {
-                const automationId = el.getAttribute('data-automation-id');
-                if (!automationId) return;
-                
-                const input = el.querySelector('input, textarea, select');
-                if (!input) return;
-                
-                const label = el.querySelector('label')?.innerText?.trim() ||
-                              el.getAttribute('aria-label') ||
-                              automationId;
-                
-                fields.push({
-                    id: input.id || automationId,
-                    label: label,
-                    type: input.tagName.toLowerCase() === 'select' ? 'select' :
-                          input.type || 'text',
-                    automationId: automationId,
-                    currentValue: input.value || ''
-                });
-            });
-            
-            // Fallback: scan all visible inputs
-            if (fields.length === 0) {
-                document.querySelectorAll('input:not([type="hidden"]), textarea, select').forEach(input => {
-                    if (!input.offsetParent) return;
-                    const label = document.querySelector(`label[for="${input.id}"]`)?.innerText?.trim() ||
-                                  input.getAttribute('aria-label') ||
-                                  input.getAttribute('placeholder') || '';
-                    if (!label) return;
-                    
-                    fields.push({
-                        id: input.id,
-                        label: label,
-                        type: input.tagName.toLowerCase() === 'select' ? 'select' :
-                              input.type || 'text',
-                        automationId: '',
-                        currentValue: input.value || ''
-                    });
-                });
-            }
-            
-            return fields;
-        }""")
-
-    def _match_workday_field(self, label: str, user_data: Dict[str, str]) -> Optional[str]:
-        """Match Workday field labels to user data."""
-        label_lower = label.lower()
-
-        mappings = [
-            (["first name", "given name", "legalnamesection_firstname"], user_data.get("first_name", "")),
-            (["last name", "family name", "surname", "legalnamesection_lastname"], user_data.get("last_name", "")),
-            (["email", "e-mail"], user_data.get("email", "")),
-            (["phone", "mobile", "telephone"], user_data.get("phone", "")),
-            (["city", "location", "address"], user_data.get("city", "")),
-        ]
-
-        for keywords, value in mappings:
-            if value and any(kw in label_lower for kw in keywords):
+        for keywords, value in pii:
+            if value and any(kw in ll for kw in keywords):
                 return value
-        return None
+        return ""
 
-    async def _fill_workday_field(self, page: Any, field_id: str, field_type: str, value: str) -> bool:
-        """Fill a Workday form field with retry logic."""
-        for attempt in range(1, 3):
-            try:
-                if field_type == "select":
-                    await page.locator(f"#{field_id}").select_option(label=value)
-                    return True
-                else:
-                    el = page.locator(f"#{field_id}")
-                    if await el.count() > 0:
-                        await el.fill(value)
-                        return True
-
-                    # Try data-automation-id
-                    el = page.locator(f"[data-automation-id='{field_id}'] input")
-                    if await el.count() > 0:
-                        await el.first.fill(value)
-                        return True
-            except Exception as e:
-                if attempt == 2:
-                    logger.debug("Workday field fill failed for %s: %s", field_id, e)
-                await asyncio.sleep(1)
-        return False
-
-    async def _upload_workday_resume(self, page: Any, resume_path: Path) -> bool:
-        """Upload resume to Workday's file input."""
-        if not resume_path.exists():
-            return False
-
-        try:
-            # Workday uses data-automation-id for file inputs
-            file_input = page.locator(
-                "input[type='file'][data-automation-id*='resume'], "
-                "input[type='file'][data-automation-id*='Resume'], "
-                "input[type='file']"
-            )
-            if await file_input.count() > 0:
-                await file_input.first.set_input_files(str(resume_path))
-                await asyncio.sleep(3)
-                return True
-        except Exception as e:
-            logger.debug("Workday resume upload failed: %s", e)
-        return False
+    async def can_handle(self, page) -> bool:
+        return (
+            "myworkdayjobs.com" in page.url
+            or "workday.com" in page.url
+            or await page.locator("[data-automation-id='applyButton']").count() > 0
+        )

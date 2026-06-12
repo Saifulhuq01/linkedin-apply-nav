@@ -1,8 +1,8 @@
 """
-SQLite state persistence for Apply-Nav.
+db.py — All SQLite operations for Apply-Nav.
 
-Tracks application history, prevents duplicate applications,
-and stores search history for analytics.
+Zero SQL outside this file. All state is persisted here.
+Rate limits, circuit breaker state, dedup checks, history — all DB-backed.
 """
 
 import sqlite3
@@ -10,50 +10,60 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 logger = logging.getLogger("apply_nav.db")
 
 DATA_DIR = Path(__file__).parent / "data"
-DB_PATH = DATA_DIR / "apply_nav.db"
+DB_PATH = DATA_DIR / "database.sqlite"
+
+
+# ─── Schema ───────────────────────────────────────────────────
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS applications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id TEXT UNIQUE NOT NULL,
-    title TEXT,
-    company TEXT,
-    location TEXT,
-    description TEXT,
-    ats_type TEXT DEFAULT 'easy_apply',
-    status TEXT DEFAULT 'pending',
-    score INTEGER,
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id        TEXT NOT NULL,
+    title         TEXT NOT NULL,
+    company       TEXT NOT NULL,
+    location      TEXT,
+    apply_url     TEXT,
+    ats_type      TEXT DEFAULT 'unknown',
+    score         INTEGER DEFAULT 0,
     matched_skills TEXT,
-    missing_skills TEXT,
+    skill_gaps    TEXT,
     outreach_note TEXT,
-    error_message TEXT,
-    apply_url TEXT,
-    applied_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status        TEXT DEFAULT 'discovered',
+    applied_at    DATETIME,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    raw_jd        TEXT,
+    resume_version TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_job_dedup ON applications(job_id);
 
 CREATE TABLE IF NOT EXISTS searches (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    keywords TEXT,
-    location TEXT,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    keywords   TEXT,
+    location   TEXT,
+    filters    TEXT,
     jobs_found INTEGER DEFAULT 0,
-    jobs_applied INTEGER DEFAULT 0,
-    searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    jobs_scored INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_applications_job_id ON applications(job_id);
-CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
-CREATE INDEX IF NOT EXISTS idx_applications_applied_at ON applications(applied_at);
+CREATE TABLE IF NOT EXISTS session_health (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    consecutive_failures INTEGER DEFAULT 0,
+    circuit_open_until   DATETIME,
+    last_checked         DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
+# ─── Connection ───────────────────────────────────────────────
+
 def _get_conn() -> sqlite3.Connection:
-    """Get a SQLite connection, creating the database if needed."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -62,137 +72,131 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _row_to_dict(row) -> dict:
+    if row is None:
+        return None
+    return dict(row)
+
+
+# ─── Init ─────────────────────────────────────────────────────
+
 def init_db() -> None:
-    """Initialize the database schema."""
+    """Creates tables; inserts one row into session_health if empty."""
     conn = _get_conn()
     try:
         conn.executescript(_SCHEMA)
+        # Insert sentinel session_health row if empty
+        row = conn.execute("SELECT COUNT(*) as c FROM session_health").fetchone()
+        if row["c"] == 0:
+            conn.execute(
+                "INSERT INTO session_health (consecutive_failures, circuit_open_until) VALUES (0, NULL)"
+            )
         conn.commit()
         logger.info("Database initialized at %s", DB_PATH)
     finally:
         conn.close()
 
 
-def is_already_applied(job_id: str) -> bool:
-    """Check if a job has already been applied to (or is in progress)."""
+# ─── Job Operations ───────────────────────────────────────────
+
+def upsert_job(job_dict: dict) -> bool:
+    """Inserts or ignores on conflict. Returns True if inserted (new), False if already existed."""
     conn = _get_conn()
     try:
-        row = conn.execute(
-            "SELECT status FROM applications WHERE job_id = ? AND status IN ('applied', 'pending')",
-            (job_id,)
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
-
-
-def get_application_status(job_id: str) -> Optional[str]:
-    """Get the current status of a job application."""
-    conn = _get_conn()
-    try:
-        row = conn.execute(
-            "SELECT status FROM applications WHERE job_id = ?",
-            (job_id,)
-        ).fetchone()
-        return row["status"] if row else None
-    finally:
-        conn.close()
-
-
-def record_application(
-    job_id: str,
-    *,
-    title: str = "",
-    company: str = "",
-    location: str = "",
-    description: str = "",
-    ats_type: str = "easy_apply",
-    status: str = "pending",
-    score: Optional[int] = None,
-    matched_skills: Optional[List[str]] = None,
-    missing_skills: Optional[List[str]] = None,
-    outreach_note: str = "",
-    error_message: str = "",
-    apply_url: str = "",
-) -> int:
-    """Record a new application attempt. Returns the row ID."""
-    conn = _get_conn()
-    try:
-        applied_at = datetime.utcnow().isoformat() if status == "applied" else None
         cursor = conn.execute(
-            """INSERT INTO applications 
-               (job_id, title, company, location, description, ats_type, status, 
-                score, matched_skills, missing_skills, outreach_note, 
-                error_message, apply_url, applied_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(job_id) DO UPDATE SET
-                   status = excluded.status,
-                   score = COALESCE(excluded.score, applications.score),
-                   matched_skills = COALESCE(excluded.matched_skills, applications.matched_skills),
-                   missing_skills = COALESCE(excluded.missing_skills, applications.missing_skills),
-                   error_message = COALESCE(excluded.error_message, applications.error_message),
-                   applied_at = COALESCE(excluded.applied_at, applications.applied_at)
-            """,
+            """INSERT OR IGNORE INTO applications
+               (job_id, title, company, location, apply_url, ats_type, score,
+                matched_skills, skill_gaps, outreach_note, status, raw_jd, resume_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                job_id, title, company, location, description, ats_type, status,
-                score,
-                json.dumps(matched_skills) if matched_skills else None,
-                json.dumps(missing_skills) if missing_skills else None,
-                outreach_note, error_message, apply_url, applied_at,
-            )
+                job_dict.get("job_id", ""),
+                job_dict.get("title", ""),
+                job_dict.get("company", ""),
+                job_dict.get("location", ""),
+                job_dict.get("apply_url", ""),
+                job_dict.get("ats_type", "unknown"),
+                job_dict.get("score", 0),
+                json.dumps(job_dict.get("matched_skills", [])),
+                json.dumps(job_dict.get("skill_gaps", [])),
+                job_dict.get("outreach_note", ""),
+                job_dict.get("status", "discovered"),
+                job_dict.get("raw_jd", ""),
+                job_dict.get("resume_version", ""),
+            ),
         )
         conn.commit()
-        logger.info("Recorded application: job_id=%s status=%s", job_id, status)
-        return cursor.lastrowid
+        return cursor.rowcount > 0
     finally:
         conn.close()
 
 
-def update_application_status(job_id: str, status: str, error_message: str = "") -> None:
-    """Update the status of an existing application."""
+def update_job_status(job_id: str, status: str, **kwargs) -> None:
+    """Updates status and any extra keyword fields on the row."""
     conn = _get_conn()
     try:
-        applied_at = datetime.utcnow().isoformat() if status == "applied" else None
+        # Build dynamic SET clause from kwargs
+        set_parts = ["status = ?"]
+        params = [status]
+
+        allowed = {
+            "applied_at", "ats_type", "score", "matched_skills",
+            "skill_gaps", "outreach_note", "apply_url", "raw_jd", "resume_version"
+        }
+        for key, val in kwargs.items():
+            if key in allowed:
+                if key in ("matched_skills", "skill_gaps") and isinstance(val, list):
+                    val = json.dumps(val)
+                set_parts.append(f"{key} = ?")
+                params.append(val)
+
+        if status == "applied" and "applied_at" not in kwargs:
+            set_parts.append("applied_at = ?")
+            params.append(datetime.utcnow().isoformat())
+
+        params.append(job_id)
         conn.execute(
-            """UPDATE applications 
-               SET status = ?, error_message = ?, 
-                   applied_at = COALESCE(?, applied_at)
-               WHERE job_id = ?""",
-            (status, error_message, applied_at, job_id)
+            f"UPDATE applications SET {', '.join(set_parts)} WHERE job_id = ?",
+            params,
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def get_application_history(
-    limit: int = 50,
-    offset: int = 0,
-    status_filter: Optional[str] = None,
-    ats_filter: Optional[str] = None,
-) -> List[Dict[str, Any]]:
-    """Get application history with optional filters."""
+def get_job(job_id: str) -> Optional[dict]:
+    """Returns the job record or None."""
     conn = _get_conn()
     try:
-        query = "SELECT * FROM applications WHERE 1=1"
-        params: list = []
+        row = conn.execute(
+            "SELECT * FROM applications WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        for field in ("matched_skills", "skill_gaps"):
+            if d.get(field):
+                try:
+                    d[field] = json.loads(d[field])
+                except (json.JSONDecodeError, TypeError):
+                    d[field] = []
+            else:
+                d[field] = []
+        return d
+    finally:
+        conn.close()
 
-        if status_filter:
-            query += " AND status = ?"
-            params.append(status_filter)
-        if ats_filter:
-            query += " AND ats_type = ?"
-            params.append(ats_filter)
 
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-
-        rows = conn.execute(query, params).fetchall()
+def get_history(limit: int = 100) -> list:
+    """Returns last N application records, newest first."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM applications ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
         results = []
         for row in rows:
             d = dict(row)
-            # Parse JSON fields
-            for field in ("matched_skills", "missing_skills"):
+            for field in ("matched_skills", "skill_gaps"):
                 if d.get(field):
                     try:
                         d[field] = json.loads(d[field])
@@ -206,82 +210,291 @@ def get_application_history(
         conn.close()
 
 
-def get_stats() -> Dict[str, Any]:
-    """Get aggregate statistics."""
+def check_duplicate(job_id: str) -> bool:
+    """Returns True if job is already applied, applying, review, or queued."""
     conn = _get_conn()
     try:
-        total = conn.execute("SELECT COUNT(*) as c FROM applications").fetchone()["c"]
-        applied = conn.execute(
-            "SELECT COUNT(*) as c FROM applications WHERE status = 'applied'"
-        ).fetchone()["c"]
-        failed = conn.execute(
-            "SELECT COUNT(*) as c FROM applications WHERE status = 'failed'"
-        ).fetchone()["c"]
-        avg_score = conn.execute(
-            "SELECT AVG(score) as a FROM applications WHERE score IS NOT NULL"
-        ).fetchone()["a"]
+        row = conn.execute(
+            """SELECT status FROM applications
+               WHERE job_id = ?
+               AND status IN ('applied', 'applying', 'review', 'queued')""",
+            (job_id,),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
 
-        # Today's count
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat()
-        today_count = conn.execute(
-            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
-            (today_start,)
-        ).fetchone()["c"]
 
-        # This hour's count
-        hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+# ─── Rate Limiting ────────────────────────────────────────────
+
+def check_rate_limit() -> tuple:
+    """Returns (is_blocked: bool, reason: str). Hard limits: 5/hr, 25/day."""
+    conn = _get_conn()
+    try:
+        now = datetime.utcnow()
+        hour_ago = (now - timedelta(hours=1)).isoformat()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
         hour_count = conn.execute(
             "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
-            (hour_ago,)
+            (hour_ago,),
         ).fetchone()["c"]
 
+        if hour_count >= 5:
+            return True, f"Hourly rate limit: {hour_count}/5 applications this hour. Wait before applying."
+
+        day_count = conn.execute(
+            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
+            (day_start,),
+        ).fetchone()["c"]
+
+        if day_count >= 25:
+            return True, f"Daily rate limit: {day_count}/25 applications today. Resume tomorrow."
+
+        return False, ""
+    finally:
+        conn.close()
+
+
+# ─── Search Log ───────────────────────────────────────────────
+
+def log_search(keywords: str, location: str, filters: str, found: int, scored: int) -> None:
+    """Record a search operation."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO searches (keywords, location, filters, jobs_found, jobs_scored) VALUES (?, ?, ?, ?, ?)",
+            (keywords, location, filters, found, scored),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ─── Circuit Breaker ──────────────────────────────────────────
+
+def get_circuit_state() -> tuple:
+    """Returns (is_open: bool, open_until: datetime | None)."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT consecutive_failures, circuit_open_until FROM session_health ORDER BY id LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return False, None
+        open_until_str = row["circuit_open_until"]
+        if open_until_str:
+            try:
+                open_until = datetime.fromisoformat(open_until_str)
+                if datetime.utcnow() < open_until:
+                    return True, open_until
+            except ValueError:
+                pass
+        return False, None
+    finally:
+        conn.close()
+
+
+def record_failure() -> None:
+    """Increments consecutive_failures; trips circuit if >= 3."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, consecutive_failures FROM session_health ORDER BY id LIMIT 1"
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO session_health (consecutive_failures) VALUES (1)"
+            )
+            conn.commit()
+            return
+
+        new_count = row["consecutive_failures"] + 1
+        open_until = None
+        if new_count >= 3:
+            open_until = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+            logger.warning("Circuit breaker tripped! open_until=%s", open_until)
+
+        conn.execute(
+            "UPDATE session_health SET consecutive_failures = ?, circuit_open_until = ?, last_checked = ? WHERE id = ?",
+            (new_count, open_until, datetime.utcnow().isoformat(), row["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def record_success() -> None:
+    """Resets consecutive_failures to 0, clears circuit_open_until."""
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE session_health SET consecutive_failures = 0, circuit_open_until = NULL, last_checked = ?",
+            (datetime.utcnow().isoformat(),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ─── Statistics ───────────────────────────────────────────────
+
+def get_statistics() -> dict:
+    """Returns counts by status, total applied today, this week, this month."""
+    conn = _get_conn()
+    try:
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+        # Counts by status
+        rows = conn.execute(
+            "SELECT status, COUNT(*) as c FROM applications GROUP BY status"
+        ).fetchall()
+        by_status = {r["status"]: r["c"] for r in rows}
+
+        applied_today = conn.execute(
+            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
+            (today_start,),
+        ).fetchone()["c"]
+
+        applied_week = conn.execute(
+            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
+            (week_start,),
+        ).fetchone()["c"]
+
+        applied_month = conn.execute(
+            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
+            (month_start,),
+        ).fetchone()["c"]
+
+        total = sum(by_status.values())
+        applied_total = by_status.get("applied", 0)
+
         return {
-            "total_tracked": total,
-            "total_applied": applied,
-            "total_failed": failed,
-            "success_rate": round((applied / total * 100), 1) if total > 0 else 0,
-            "avg_score": round(avg_score, 1) if avg_score else 0,
-            "today_applied": today_count,
-            "this_hour_applied": hour_count,
+            "by_status": by_status,
+            "total": total,
+            "applied_today": applied_today,
+            "applied_this_week": applied_week,
+            "applied_this_month": applied_month,
+            "applied_total": applied_total,
+            "success_rate": round((applied_total / total * 100), 1) if total > 0 else 0,
         }
     finally:
         conn.close()
 
 
-def check_rate_limit(max_per_hour: int, max_per_day: int) -> Optional[str]:
-    """Check if rate limits are exceeded. Returns error message or None."""
+# ─── Legacy compatibility shims (used by job_applier_dashboard.py) ────────────
+
+def is_already_applied(job_id: str) -> bool:
+    return check_duplicate(job_id)
+
+
+def get_application_status(job_id: str) -> Optional[str]:
+    job = get_job(job_id)
+    return job["status"] if job else None
+
+
+def record_application(
+    job_id: str,
+    *,
+    title: str = "",
+    company: str = "",
+    location: str = "",
+    description: str = "",
+    ats_type: str = "easy_apply",
+    status: str = "discovered",
+    score: Optional[int] = None,
+    matched_skills=None,
+    missing_skills=None,
+    outreach_note: str = "",
+    error_message: str = "",
+    apply_url: str = "",
+) -> int:
+    """Legacy: upsert an application record."""
+    upsert_job({
+        "job_id": job_id,
+        "title": title,
+        "company": company,
+        "location": location,
+        "apply_url": apply_url,
+        "ats_type": ats_type,
+        "score": score or 0,
+        "matched_skills": matched_skills or [],
+        "skill_gaps": missing_skills or [],
+        "outreach_note": outreach_note,
+        "status": status,
+        "raw_jd": description,
+    })
+    job = get_job(job_id)
+    return job["id"] if job else 0
+
+
+def update_application_status(job_id: str, status: str, error_message: str = "") -> None:
+    """Legacy: thin wrapper around update_job_status."""
+    update_job_status(job_id, status)
+
+
+def get_application_history(
+    limit: int = 50,
+    offset: int = 0,
+    status_filter: Optional[str] = None,
+    ats_filter: Optional[str] = None,
+) -> list:
+    """Legacy: filtered history query."""
     conn = _get_conn()
     try:
-        hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
-        hour_count = conn.execute(
-            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
-            (hour_ago,)
-        ).fetchone()["c"]
-        if hour_count >= max_per_hour:
-            return f"Rate limit: {hour_count}/{max_per_hour} applications this hour. Wait before applying."
+        query = "SELECT * FROM applications WHERE 1=1"
+        params: list = []
+        if status_filter:
+            query += " AND status = ?"
+            params.append(status_filter)
+        if ats_filter:
+            query += " AND ats_type = ?"
+            params.append(ats_filter)
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat()
-        day_count = conn.execute(
-            "SELECT COUNT(*) as c FROM applications WHERE applied_at >= ? AND status = 'applied'",
-            (today_start,)
-        ).fetchone()["c"]
-        if day_count >= max_per_day:
-            return f"Daily limit: {day_count}/{max_per_day} applications today. Resume tomorrow."
-
-        return None
+        rows = conn.execute(query, params).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            for field in ("matched_skills", "skill_gaps"):
+                if d.get(field):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except (json.JSONDecodeError, TypeError):
+                        d[field] = []
+                else:
+                    d[field] = []
+            # Map new field names to legacy names for compatibility
+            d["missing_skills"] = d.get("skill_gaps", [])
+            d["description"] = d.get("raw_jd", "")
+            results.append(d)
+        return results
     finally:
         conn.close()
+
+
+def get_stats() -> dict:
+    """Legacy alias for get_statistics()."""
+    stats = get_statistics()
+    # Add legacy keys
+    stats["total_tracked"] = stats["total"]
+    stats["total_applied"] = stats["applied_total"]
+    stats["total_failed"] = stats["by_status"].get("failed", 0)
+    stats["today_applied"] = stats["applied_today"]
+    return stats
+
+
+def check_rate_limit_legacy(max_per_hour: int = 5, max_per_day: int = 25) -> Optional[str]:
+    """Legacy: returns error message string or None."""
+    is_blocked, reason = check_rate_limit()
+    return reason if is_blocked else None
 
 
 def record_search(keywords: str, location: str, jobs_found: int) -> int:
-    """Record a search operation."""
-    conn = _get_conn()
-    try:
-        cursor = conn.execute(
-            "INSERT INTO searches (keywords, location, jobs_found) VALUES (?, ?, ?)",
-            (keywords, location, jobs_found)
-        )
-        conn.commit()
-        return cursor.lastrowid
-    finally:
-        conn.close()
+    """Legacy: log a search with minimal params."""
+    log_search(keywords, location, "", jobs_found, 0)
+    return 0

@@ -1,80 +1,78 @@
 """
-LLM Adapter for Apply-Nav.
+llm_adapter.py — Multi-provider LLM abstraction for Apply-Nav.
 
-Provider-agnostic interface for AI operations: job scoring,
-screening question answering, and form field mapping.
-
-Supports: Gemini, Ollama (local), and keyword heuristic fallback.
+Providers: Gemini 2.5 Flash → Ollama → Keyword Heuristic (always works).
 """
 
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
-
-from answer_cache import AnswerCache
 
 logger = logging.getLogger("apply_nav.llm")
 
-# ─── Prompt Templates ───
 
-SCORE_JOB_PROMPT = """Evaluate how well this candidate's resume matches the job description.
+# ─── Prompt Templates (exact per spec) ────────────────────────
 
-Resume:
+SCORE_JOB_PROMPT = """You are a technical recruiter. Compare the candidate resume to the job description.
+Return ONLY valid JSON with these exact keys: score (0-100 integer), matched_skills (list of strings), skill_gaps (list of strings), outreach_note (string, max 280 chars, first-person, professional).
+Do not include any text outside the JSON object.
+
+RESUME:
 {resume_text}
 
-Job Description:
-{job_description}
+JOB DESCRIPTION:
+{job_description}"""
 
-Output a JSON object with these fields:
-- score: integer 0-100 (how well the candidate matches)
-- rationale: string explaining the score
-- matched_skills: array of skills the candidate has that the job requires
-- missing_skills: array of skills the job requires that the candidate lacks
-- outreach_note: a personalized 2-3 sentence message the candidate could send to the hiring manager"""
+ANSWER_QUESTION_PROMPT = """You are filling out a job application form. Based on the candidate profile below, answer the application question concisely.
+Return ONLY the answer text, no explanation, no JSON.
 
-SCREENING_QUESTION_PROMPT = """You are helping a job applicant answer a screening question on a job application form.
+QUESTION: {question}
+OPTIONS (if any): {options}
 
-Applicant Profile:
-- Name: {first_name} {last_name}
-- Location: {city}
-- Work Authorization: {work_authorization}
-- Experience: {years_of_experience} years
+CANDIDATE PROFILE:
+{profile_json}"""
 
-Resume (abbreviated):
-{resume_text}
+MAP_FORM_FIELDS_PROMPT = """You are filling out a job application form. Map the form fields to the candidate's profile data.
+Return ONLY valid JSON mapping field labels to their values. Use empty string for unknown fields.
 
-Question: "{question}"
-Field Type: {field_type}
-Available Options: {options}
+FORM FIELDS: {field_labels}
 
-Instructions:
-- Answer concisely and accurately based on the resume
-- If it's a yes/no or radio question, respond with ONLY the answer text
-- If it's a text field, respond with a brief, professional answer
-- If the resume doesn't contain the information, make a reasonable inference
-- Output ONLY the answer, no explanation"""
+CANDIDATE PROFILE:
+{profile_json}"""
 
-FORM_FIELD_MAPPING_PROMPT = """Map the following form fields to the applicant's data.
+EXTRACT_RESUME_PROMPT = """Extract structured information from this resume.
+Return ONLY valid JSON with these exact keys: name (string), email (string), phone (string), skills (list of strings), experience_years (string), current_title (string), education (string), summary (string).
 
-Applicant Data:
-{user_data_json}
+RESUME TEXT:
+{resume_text}"""
 
-Form Fields (label → field_id):
-{form_fields_json}
 
-For each field, output a JSON object mapping field_id to the value to fill in.
-Only include fields you can confidently fill. Skip fields where you're unsure."""
+# ─── Heuristic Keywords ───────────────────────────────────────
+
+_HEURISTIC_KEYWORDS = [
+    ("java", "Java"), ("spring boot", "Spring Boot"), ("spring", "Spring"),
+    ("kafka", "Kafka"), ("angular", "Angular"), ("postgresql", "PostgreSQL"),
+    ("docker", "Docker"), ("kubernetes", "Kubernetes"), ("rest", "REST"),
+    ("microservices", "Microservices"), ("python", "Python"), ("react", "React"),
+    ("node", "Node.js"), ("aws", "AWS"), ("gcp", "GCP"), ("azure", "Azure"),
+    ("mongodb", "MongoDB"), ("redis", "Redis"), ("graphql", "GraphQL"),
+    ("typescript", "TypeScript"), ("javascript", "JavaScript"),
+    ("terraform", "Terraform"), ("jenkins", "Jenkins"), ("ci/cd", "CI/CD"),
+    ("git", "Git"), ("sql", "SQL"), ("linux", "Linux"), ("agile", "Agile"),
+    ("spark", "Apache Spark"), ("golang", "Go"), ("fastapi", "FastAPI"),
+]
 
 
 class LLMAdapter:
-    """Routes LLM calls to the configured provider."""
+    """Routes LLM calls to Gemini → Ollama → Heuristic fallback chain."""
 
-    def __init__(self, config: Dict[str, Any], answer_cache: Optional[AnswerCache] = None):
+    def __init__(self, config: Dict[str, Any], answer_cache=None):
         self._config = config.get("llm", {})
+        self._user_config = config.get("user", {}) or config.get("candidate", {})
         self._provider = self._config.get("provider", "gemini")
-        self._user_config = config.get("user", {})
-        self._answer_cache = answer_cache or AnswerCache()
+        self._answer_cache = answer_cache
         logger.info("LLM adapter initialized: provider=%s", self._provider)
 
     @property
@@ -82,194 +80,228 @@ class LLMAdapter:
         return self._provider
 
     def has_api_key(self) -> bool:
-        """Check if the current provider has a usable API key configured."""
         if self._provider == "gemini":
-            key = self._get_gemini_key()
-            return bool(key)
-        elif self._provider == "ollama":
-            return True  # Ollama runs locally, no key needed
+            return bool(self._get_gemini_key())
+        if self._provider == "ollama":
+            return True  # local, no key needed
         return False
 
     def _get_gemini_key(self) -> str:
-        """Get Gemini API key from config or environment."""
         return (
-            self._config.get("gemini", {}).get("api_key", "")
+            self._config.get("gemini_api_key", "")
+            or self._config.get("gemini", {}).get("api_key", "")
             or os.environ.get("GEMINI_API_KEY", "")
         )
 
     def override_api_key(self, key: str) -> None:
-        """Override the API key at runtime (e.g., from frontend input)."""
-        if self._provider == "gemini":
-            if "gemini" not in self._config:
-                self._config["gemini"] = {}
-            self._config["gemini"]["api_key"] = key
+        if "gemini" not in self._config:
+            self._config["gemini"] = {}
+        self._config["gemini"]["api_key"] = key
+        self._config["gemini_api_key"] = key
 
-    # ─── Job Scoring ───
+    # ─── Job Scoring ──────────────────────────────────────────
 
     async def score_job(self, resume_text: str, job_description: str) -> Dict[str, Any]:
-        """Score how well a resume matches a job description.
-        
-        Returns: {score, rationale, matched_skills, missing_skills, outreach_note}
-        """
-        if not self.has_api_key() and self._provider != "ollama":
-            return self._heuristic_score(resume_text, job_description)
-
+        """Score resume vs job description. Returns {score, matched_skills, skill_gaps, outreach_note}."""
         prompt = SCORE_JOB_PROMPT.format(
             resume_text=resume_text[:4000],
             job_description=job_description[:3000],
         )
 
         try:
-            if self._provider == "gemini":
-                return await self._gemini_score(prompt)
+            if self._provider == "gemini" and self._get_gemini_key():
+                result = await self._gemini_json(prompt)
+                return self._normalize_score_result(result)
             elif self._provider == "ollama":
-                return await self._ollama_call(prompt, json_mode=True)
-            else:
-                return self._heuristic_score(resume_text, job_description)
+                result = await self._ollama_call(prompt, json_mode=True)
+                return self._normalize_score_result(result)
         except Exception as e:
-            logger.error("LLM scoring failed: %s — falling back to heuristic", e)
-            result = self._heuristic_score(resume_text, job_description)
-            result["rationale"] = f"AI scoring failed ({e}). Using keyword heuristic."
-            return result
+            logger.warning("LLM scoring failed (%s): %s — using heuristic", self._provider, e)
 
-    async def _gemini_score(self, prompt: str) -> Dict[str, Any]:
-        """Call Gemini for job scoring with structured JSON output."""
-        from google import genai
-        from google.genai import types
+        return self._heuristic_score(resume_text, job_description)
 
-        key = self._get_gemini_key()
-        model = self._config.get("gemini", {}).get("model", "gemini-2.5-flash")
+    def _normalize_score_result(self, result: dict) -> dict:
+        """Normalize LLM score response to expected shape."""
+        return {
+            "score": int(result.get("score", 0)),
+            "matched_skills": result.get("matched_skills", result.get("skills_matched", [])),
+            "skill_gaps": result.get("skill_gaps", result.get("missing_skills", result.get("skills_missing", []))),
+            "outreach_note": result.get("outreach_note", result.get("outreach", "")),
+            "rationale": result.get("rationale", ""),
+        }
 
-        client = genai.Client(api_key=key)
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "score": types.Schema(type=types.Type.INTEGER),
-                        "rationale": types.Schema(type=types.Type.STRING),
-                        "matched_skills": types.Schema(
-                            type=types.Type.ARRAY,
-                            items=types.Schema(type=types.Type.STRING),
-                        ),
-                        "missing_skills": types.Schema(
-                            type=types.Type.ARRAY,
-                            items=types.Schema(type=types.Type.STRING),
-                        ),
-                        "outreach_note": types.Schema(type=types.Type.STRING),
-                    },
-                    required=["score", "rationale", "matched_skills", "missing_skills"],
-                ),
-            ),
-        )
-        return json.loads(response.text)
+    # ─── Answer Question ──────────────────────────────────────
 
-    # ─── Screening Questions ───
+    async def answer_question(self, question: str, options: List[str], resume_structured: dict) -> str:
+        """Answer a form question. Check cache first, then LLM, then heuristic."""
+        # Check cache
+        if self._answer_cache:
+            cached = self._answer_cache.get(question)
+            if cached:
+                return cached
 
-    async def answer_screening_question(
-        self,
-        question: str,
-        field_type: str,
-        options: List[str],
-        resume_text: str,
-    ) -> str:
-        """Generate an answer for a screening question.
-        
-        Checks the answer cache first. On cache miss, calls the LLM
-        and caches the result for future use.
-        """
-        # Check cache first
-        cached = self._answer_cache.get(question)
-        if cached:
-            logger.info("Answer cache HIT for: %s", question[:60])
-            return cached
-
-        if not self.has_api_key() and self._provider != "ollama":
-            return ""
-
-        prompt = SCREENING_QUESTION_PROMPT.format(
-            first_name=self._user_config.get("first_name", ""),
-            last_name=self._user_config.get("last_name", ""),
-            city=self._user_config.get("city", ""),
-            work_authorization=self._user_config.get("work_authorization", ""),
-            years_of_experience=self._user_config.get("years_of_experience", ""),
-            resume_text=resume_text[:2000],
+        prompt = ANSWER_QUESTION_PROMPT.format(
             question=question,
-            field_type=field_type,
             options=", ".join(options) if options else "N/A",
+            profile_json=json.dumps(resume_structured, indent=2)[:2000],
         )
 
+        answer = ""
         try:
-            if self._provider == "gemini":
+            if self._provider == "gemini" and self._get_gemini_key():
                 answer = await self._gemini_text(prompt)
             elif self._provider == "ollama":
-                result = await self._ollama_call(prompt, json_mode=False)
-                answer = result if isinstance(result, str) else str(result)
-            else:
-                return ""
-
-            # Cache the answer for future use
-            if answer:
-                self._answer_cache.set(question, answer, field_type)
-            return answer
+                answer = await self._ollama_call(prompt, json_mode=False)
         except Exception as e:
-            logger.error("LLM screening question failed: %s", e)
-            return ""
+            logger.warning("LLM answer_question failed: %s — using heuristic", e)
 
-    async def _gemini_text(self, prompt: str) -> str:
-        """Call Gemini for plain text response."""
-        from google import genai
+        if not answer:
+            # Heuristic fallback
+            if options:
+                mid = len(options) // 2
+                answer = options[mid]
+            else:
+                answer = "Yes"
 
-        key = self._get_gemini_key()
-        model = self._config.get("gemini", {}).get("model", "gemini-2.5-flash")
+        # Cache the answer
+        if self._answer_cache and answer:
+            self._answer_cache.set(question, answer)
 
-        client = genai.Client(api_key=key)
-        response = client.models.generate_content(model=model, contents=prompt)
-        return response.text.strip()
+        return answer
 
-    # ─── Form Field Mapping (for external ATS) ───
+    # Legacy method name
+    async def answer_screening_question(
+        self, question: str, field_type: str, options: List[str], resume_text: str
+    ) -> str:
+        structured = {}
+        try:
+            from resume_manager import get_manager
+            structured = get_manager().get_structured()
+        except Exception:
+            pass
+        return await self.answer_question(question, options, structured)
 
-    async def map_form_fields(
-        self, form_fields: List[Dict], user_data: Dict
-    ) -> Dict[str, str]:
-        """Map user data to ATS form fields using AI."""
-        if not self.has_api_key() and self._provider != "ollama":
-            return {}
+    # ─── Form Field Mapping ───────────────────────────────────
 
-        prompt = FORM_FIELD_MAPPING_PROMPT.format(
-            user_data_json=json.dumps(user_data, indent=2),
-            form_fields_json=json.dumps(form_fields, indent=2),
+    async def map_form_fields(self, field_labels: List[str], resume_structured: dict) -> Dict[str, str]:
+        """Map field labels to profile values. Returns {label: value}."""
+        prompt = MAP_FORM_FIELDS_PROMPT.format(
+            field_labels=json.dumps(field_labels),
+            profile_json=json.dumps(resume_structured, indent=2)[:2000],
         )
 
         try:
-            if self._provider == "gemini":
-                result_text = await self._gemini_text(prompt)
-                # Try to parse as JSON
-                return json.loads(result_text)
+            if self._provider == "gemini" and self._get_gemini_key():
+                result = await self._gemini_json(prompt)
+                if isinstance(result, dict):
+                    return result
+            elif self._provider == "ollama":
+                result = await self._ollama_call(prompt, json_mode=True)
+                if isinstance(result, dict):
+                    return result
+        except Exception as e:
+            logger.warning("LLM form field mapping failed: %s", e)
+
+        # Heuristic: match label keywords to profile fields
+        return self._heuristic_map_fields(field_labels, resume_structured)
+
+    def _heuristic_map_fields(self, field_labels: List[str], profile: dict) -> Dict[str, str]:
+        mapping = {}
+        pii = {
+            "first name": profile.get("name", "").split()[0] if profile.get("name") else "",
+            "last name": profile.get("name", "").split()[-1] if profile.get("name") else "",
+            "email": profile.get("email", ""),
+            "phone": profile.get("phone", ""),
+            "city": "",
+            "location": "",
+        }
+        for label in field_labels:
+            ll = label.lower()
+            for key, val in pii.items():
+                if key in ll and val:
+                    mapping[label] = val
+                    break
+        return mapping
+
+    # ─── Resume Structure Extraction ──────────────────────────
+
+    async def extract_resume_structure(self, resume_text: str) -> dict:
+        """Extract structured fields from raw resume text using LLM."""
+        from resume_manager import ResumeManager
+        prompt = EXTRACT_RESUME_PROMPT.format(resume_text=resume_text[:5000])
+
+        try:
+            if self._provider == "gemini" and self._get_gemini_key():
+                return await self._gemini_json(prompt)
             elif self._provider == "ollama":
                 return await self._ollama_call(prompt, json_mode=True)
-            return {}
         except Exception as e:
-            logger.error("LLM form mapping failed: %s", e)
-            return {}
+            logger.warning("LLM resume extraction failed: %s", e)
 
-    # ─── Ollama Provider ───
+        mgr = ResumeManager()
+        return mgr._heuristic_extract(resume_text)
+
+    # ─── Gemini Provider ──────────────────────────────────────
+
+    async def _gemini_json(self, prompt: str) -> dict:
+        """Call Gemini and parse JSON response."""
+        key = self._get_gemini_key()
+        model = (
+            self._config.get("gemini", {}).get("model", "")
+            or "gemini-2.5-flash"
+        )
+
+        try:
+            # Try new google.genai SDK first
+            from google import genai as genai_new
+            client = genai_new.Client(api_key=key)
+            response = client.models.generate_content(model=model, contents=prompt)
+            return self._parse_json_response(response.text)
+        except (ImportError, AttributeError):
+            pass
+
+        # Fall back to google.generativeai
+        import google.generativeai as genai
+        genai.configure(api_key=key)
+        model_obj = genai.GenerativeModel(model)
+        response = model_obj.generate_content(prompt)
+        return self._parse_json_response(response.text)
+
+    async def _gemini_text(self, prompt: str) -> str:
+        """Call Gemini and return plain text response."""
+        key = self._get_gemini_key()
+        model = self._config.get("gemini", {}).get("model", "") or "gemini-2.5-flash"
+
+        try:
+            from google import genai as genai_new
+            client = genai_new.Client(api_key=key)
+            response = client.models.generate_content(model=model, contents=prompt)
+            return response.text.strip()
+        except (ImportError, AttributeError):
+            pass
+
+        import google.generativeai as genai
+        genai.configure(api_key=key)
+        model_obj = genai.GenerativeModel(model)
+        response = model_obj.generate_content(prompt)
+        return response.text.strip()
+
+    # ─── Ollama Provider ──────────────────────────────────────
 
     async def _ollama_call(self, prompt: str, json_mode: bool = False) -> Any:
         """Call Ollama local inference API."""
         import httpx
 
-        base_url = self._config.get("ollama", {}).get("base_url", "http://localhost:11434")
-        model = self._config.get("ollama", {}).get("model", "llama3.1")
+        base_url = (
+            self._config.get("ollama_url", "")
+            or self._config.get("ollama", {}).get("base_url", "http://localhost:11434")
+        )
+        model = (
+            self._config.get("ollama_model", "")
+            or self._config.get("ollama", {}).get("model", "llama3")
+        )
 
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-        }
+        payload: dict = {"model": model, "prompt": prompt, "stream": False}
         if json_mode:
             payload["format"] = "json"
 
@@ -277,61 +309,44 @@ class LLMAdapter:
             resp = await client.post(f"{base_url}/api/generate", json=payload)
             resp.raise_for_status()
             data = resp.json()
-            response_text = data.get("response", "").strip()
-
+            text = data.get("response", "").strip()
             if json_mode:
-                return json.loads(response_text)
-            return response_text
+                return self._parse_json_response(text)
+            return text
 
-    # ─── Heuristic Fallback ───
+    @staticmethod
+    def _parse_json_response(text: str) -> dict:
+        """Strip markdown fences and parse JSON."""
+        # Remove markdown code fences
+        text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+        text = re.sub(r"```\s*$", "", text.strip(), flags=re.MULTILINE)
+        text = text.strip()
+        return json.loads(text)
+
+    # ─── Heuristic Fallback ───────────────────────────────────
 
     def _heuristic_score(self, resume_text: str, job_description: str) -> Dict[str, Any]:
-        """Keyword-matching fallback when no LLM API key is available."""
-        keywords_map = {
-            "java": "Java", "spring": "Spring Boot", "kafka": "Kafka",
-            "postgresql": "PostgreSQL", "angular": "Angular", "aws": "AWS",
-            "gcp": "GCP", "azure": "Azure", "docker": "Docker",
-            "kubernetes": "Kubernetes", "react": "React", "node": "Node.js",
-            "python": "Python", "microservices": "Microservices",
-            "rest": "REST API", "sql": "SQL", "mongodb": "MongoDB",
-            "redis": "Redis", "jenkins": "Jenkins", "ci/cd": "CI/CD",
-            "git": "Git", "typescript": "TypeScript", "javascript": "JavaScript",
-            "html": "HTML", "css": "CSS", "graphql": "GraphQL",
-            "terraform": "Terraform", "ansible": "Ansible",
-            "linux": "Linux", "agile": "Agile", "scrum": "Scrum",
-            "jira": "Jira", "machine learning": "Machine Learning",
-            "deep learning": "Deep Learning", "nlp": "NLP",
-            "data pipeline": "Data Pipeline", "etl": "ETL",
-            "spark": "Apache Spark", "hadoop": "Hadoop",
-            "golang": "Go", "rust": "Rust", "c++": "C++",
-            "swift": "Swift", "kotlin": "Kotlin", "flutter": "Flutter",
-        }
+        """Keyword-overlap heuristic for offline/no-key operation."""
+        jd_lower = job_description.lower()
+        resume_lower = resume_text.lower()
 
-        score = 50
-        matched, gaps = [], []
-        dl = job_description.lower()
-        rl = resume_text.lower()
-
-        for keyword, display_name in keywords_map.items():
-            if keyword in dl:
-                if keyword in rl:
-                    matched.append(display_name)
-                    score += 4
+        matched = []
+        gaps = []
+        for kw, display in _HEURISTIC_KEYWORDS:
+            if kw in jd_lower:
+                if kw in resume_lower:
+                    matched.append(display)
                 else:
-                    gaps.append(display_name)
-                    score -= 2
+                    gaps.append(display)
 
+        total = len(matched) + len(gaps)
+        score = int((len(matched) / total) * 100) if total > 0 else 50
         score = max(10, min(100, score))
 
-        first_name = self._user_config.get("first_name", "the applicant")
         return {
             "score": score,
-            "rationale": "Keyword heuristic scoring. Add an LLM API key for AI-powered analysis.",
             "matched_skills": matched,
-            "missing_skills": gaps,
-            "outreach_note": (
-                f"Hi, I'm {first_name} and I'm excited about this opportunity. "
-                f"I bring experience with {', '.join(matched[:3]) if matched else 'relevant technologies'} "
-                f"and I'm eager to contribute to your team."
-            ),
+            "skill_gaps": gaps,
+            "outreach_note": "Strong match on core backend skills.",
+            "rationale": "Keyword heuristic scoring. Add an LLM API key for AI-powered analysis.",
         }

@@ -1,75 +1,56 @@
 /* ─────────────────────────────────────────────────────────
-   Apply-Nav — Resume Upload & Management Module
+   Apply-Nav — resume.js
+   Resume upload (drag-drop + click), text preview,
+   version list, active resume management.
    ───────────────────────────────────────────────────────── */
 
 function initResume() {
-    loadResume();
-    setupUploadZone();
-}
-
-async function loadResume() {
-    try {
-        const res = await fetch('/api/resume');
-        const data = await res.json();
-        const el = document.getElementById('resume-content');
-        if (el) el.value = data.text;
-
-        // Update upload zone status
-        if (data.has_resume) {
-            const zone = document.getElementById('upload-zone');
-            if (zone) {
-                zone.innerHTML = `
-                    <div class="upload-success">✓ Resume uploaded</div>
-                    <div class="upload-text">Drop a new PDF to replace</div>
-                    <div class="upload-hint">Current resume: ${data.text.length} characters extracted</div>
-                `;
-            }
-        }
-    } catch (err) {
-        console.error("Error loading resume:", err);
-    }
-}
-
-function setupUploadZone() {
     const zone = document.getElementById('upload-zone');
     const fileInput = document.getElementById('resume-file-input');
+
     if (!zone || !fileInput) return;
 
-    zone.addEventListener('click', () => fileInput.click());
-
-    zone.addEventListener('dragover', (e) => {
+    // Drag-and-drop
+    zone.addEventListener('dragover', e => {
         e.preventDefault();
         zone.classList.add('drag-over');
     });
-
     zone.addEventListener('dragleave', () => {
         zone.classList.remove('drag-over');
     });
-
-    zone.addEventListener('drop', (e) => {
+    zone.addEventListener('drop', e => {
         e.preventDefault();
         zone.classList.remove('drag-over');
-        const files = e.dataTransfer.files;
-        if (files.length > 0) uploadResumeFile(files[0]);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) handleResumeFile(file);
     });
 
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) uploadResumeFile(e.target.files[0]);
+    // Click-to-browse
+    fileInput.addEventListener('change', () => {
+        const file = fileInput.files?.[0];
+        if (file) handleResumeFile(file);
+        fileInput.value = '';
     });
+
+    // Initial load
+    loadActiveResumePreview();
 }
 
-async function uploadResumeFile(file) {
+async function handleResumeFile(file) {
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-        alert('Only PDF files are supported.');
+        showUploadError('Only PDF files are supported.');
+        return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+        showUploadError('File too large. Maximum 10MB.');
         return;
     }
 
     const zone = document.getElementById('upload-zone');
     zone.innerHTML = `
-        <div class="upload-text" style="color: var(--primary);">
-            <svg width="24" height="24" stroke="currentColor" viewBox="0 0 24 24" style="animation: blink 0.8s infinite alternate; fill:none; stroke-width: 2;"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-            Uploading ${file.name}...
-        </div>
+        <div class="upload-icon">⏳</div>
+        <div class="upload-text">Uploading <strong>${file.name}</strong>...</div>
+        <div class="upload-hint">Extracting text...</div>
     `;
 
     const formData = new FormData();
@@ -80,31 +61,109 @@ async function uploadResumeFile(file) {
             method: 'POST',
             body: formData,
         });
-
-        if (!res.ok) {
-            const err = await res.json();
-            alert(`Upload failed: ${err.detail || 'Unknown error'}`);
+        if (res.ok) {
+            const data = await res.json();
+            const resume = data.resume;
             zone.innerHTML = `
-                <div class="upload-icon">📄</div>
-                <div class="upload-text">Drop your resume PDF here or click to browse</div>
-                <div class="upload-hint">PDF only, max 10MB</div>
+                <div class="upload-icon">✅</div>
+                <div class="upload-text" style="color:var(--success);">${resume.original_name} uploaded!</div>
+                <div class="upload-hint">Resume is now active.</div>
             `;
-            return;
+            await loadActiveResumePreview();
+            await loadResumeList();
+            addLog(`Resume uploaded: ${resume.original_name}`, 'success');
+        } else {
+            const err = await res.json().catch(() => ({}));
+            showUploadError(err.detail || 'Upload failed.');
         }
+    } catch (e) {
+        showUploadError(`Upload error: ${e.message}`);
+    }
+}
 
-        const data = await res.json();
+function showUploadError(msg) {
+    const zone = document.getElementById('upload-zone');
+    zone.innerHTML = `
+        <div class="upload-icon">❌</div>
+        <div class="upload-text" style="color:var(--error);">${msg}</div>
+        <div class="upload-hint" style="cursor:pointer; color:var(--accent);" onclick="resetUploadZone()">Click to try again</div>
+    `;
+}
 
-        zone.innerHTML = `
-            <div class="upload-success">✓ Resume uploaded successfully</div>
-            <div class="upload-text">${data.chars_extracted} characters extracted</div>
-            <div class="upload-hint">Drop a new PDF to replace</div>
-        `;
+function resetUploadZone() {
+    const zone = document.getElementById('upload-zone');
+    zone.innerHTML = `
+        <div class="upload-icon">📄</div>
+        <div class="upload-text">Drop resume PDF or click to browse</div>
+        <div class="upload-hint">PDF only, max 10MB</div>
+    `;
+}
 
-        // Update resume text preview
-        const el = document.getElementById('resume-content');
-        if (el) el.value = data.text;
+async function loadActiveResumePreview() {
+    try {
+        const res = await fetch('/api/resume');
+        if (res.ok) {
+            const data = await res.json();
+            const preview = document.getElementById('resume-content');
+            if (preview) {
+                preview.value = data.has_resume
+                    ? (data.text || '').substring(0, 500) + (data.text?.length > 500 ? '...' : '')
+                    : 'No resume uploaded yet.';
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load resume preview:', e);
+    }
+}
 
-    } catch (err) {
-        alert(`Upload failed: ${err.message}`);
+async function loadResumeList() {
+    const container = document.getElementById('resume-list');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/resume/list');
+        if (res.ok) {
+            const resumes = await res.json();
+            if (resumes.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = `
+                <p style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.06em;">Resume History</p>
+                <div style="display:flex; flex-direction:column; gap:0.375rem;">
+                    ${resumes.map(r => `
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.5rem 0.625rem; background:rgba(255,255,255,0.03); border:1px solid ${r.is_active ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.06)'}; border-radius:6px;">
+                            <div style="min-width:0; flex:1;">
+                                <div style="font-size:0.78rem; font-weight:600; color:${r.is_active ? 'var(--accent)' : 'var(--text-secondary)'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${r.original_name}">${r.original_name}</div>
+                                <div style="font-size:0.65rem; color:var(--text-muted);">${r.is_active ? '● Active' : new Date(r.uploaded_at).toLocaleDateString()}</div>
+                            </div>
+                            ${!r.is_active ? `<button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.7rem; flex-shrink:0;" onclick="activateResume('${r.filename}')">Activate</button>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+    } catch (e) {
+        console.error('Failed to load resume list:', e);
+    }
+}
+
+async function activateResume(filename) {
+    try {
+        const res = await fetch('/api/resume/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+        });
+        if (res.ok) {
+            await loadActiveResumePreview();
+            await loadResumeList();
+            addLog(`Activated resume: ${filename}`, 'success');
+        } else {
+            const err = await res.json().catch(() => ({}));
+            addLog(`Failed to activate resume: ${err.detail}`, 'error');
+        }
+    } catch (e) {
+        addLog(`Error: ${e.message}`, 'error');
     }
 }

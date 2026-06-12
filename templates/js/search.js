@@ -145,8 +145,10 @@ function renderJobDetail(job) {
     let analysisHTML = '';
 
     if (analysis) {
-        const matchedTags = analysis.matched_skills.map(s => `<span class="skill-tag match">${s}</span>`).join('');
-        const missingTags = analysis.missing_skills.map(s => `<span class="skill-tag gap">${s}</span>`).join('');
+        const matchedSkills = analysis.matched_skills || [];
+        const missingSkills = analysis.skill_gaps || analysis.missing_skills || [];
+        const matchedTags = matchedSkills.map(s => `<span class="skill-tag match">${s}</span>`).join('');
+        const missingTags = missingSkills.map(s => `<span class="skill-tag gap">${s}</span>`).join('');
 
         analysisHTML = `
             <div class="glass-card" style="background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.02); margin-top: 1rem;">
